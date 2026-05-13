@@ -4,9 +4,11 @@ import { describeRoute, resolver } from 'hono-openapi'
 import { sValidator } from '@hono/standard-validator'
 import { z } from 'zod'
 import { db } from '../db'
-import { accounts, holidayCalendars, inboundRoutes, recordingPolicies, routingPolicies, timeConditions } from '../db/schema'
+import { accounts, holidayCalendars, inboundRoutes, ivrProfiles, recordingPolicies, routingPolicies, timeConditions } from '../db/schema'
 import { badRequest, conflict, internalError, normalizePagination, notFound, parseIdParam } from '../utils/http'
 import { validateFlag01, validateRequiredString } from '../utils/validators'
+import { getTenantScopeFromQuery } from '../utils/tenant'
+import { writeTenantAuditLog } from '../utils/audit'
 
 const inboundRoutesRoute = new Hono()
 
@@ -19,6 +21,7 @@ const bodySchema = z.object({
   holidayCalendarId: z.number().nullable().optional(),
   routingPolicyId: z.number().nullable().optional(),
   recordingPolicyId: z.number().nullable().optional(),
+  ivrProfileId: z.number().nullable().optional(),
   targetType: z.string().min(1, 'Target Type is required'),
   targetValue: z.string().min(1, 'Target Value is required'),
   fallbackTargetType: z.string().optional(),
@@ -33,6 +36,7 @@ const responseSchema = z.object({
   domain: z.string(),
   did: z.string(),
   priority: z.number(),
+  ivrProfileId: z.number().nullable(),
   targetType: z.string(),
   targetValue: z.string(),
   fallbackTargetType: z.string(),
@@ -69,8 +73,15 @@ inboundRoutesRoute.get(
   }),
   async (c) => {
     try {
+      const tenant = getTenantScopeFromQuery(c)
+      if ('error' in tenant) return badRequest(c, tenant.error)
       const { limit, offset } = normalizePagination(c.req.query('limit'), c.req.query('offset'))
-      const rows = await db.select().from(inboundRoutes).limit(limit).offset(offset)
+      const rows = await db
+        .select()
+        .from(inboundRoutes)
+        .where(and(eq(inboundRoutes.accountId, tenant.accountId), eq(inboundRoutes.domain, tenant.domain)))
+        .limit(limit)
+        .offset(offset)
       return c.json({ inboundRoutes: rows, page: { limit, offset } })
     } catch (error: unknown) {
       console.error(error)
@@ -82,8 +93,14 @@ inboundRoutesRoute.get(
 inboundRoutesRoute.get('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const row = await db.select().from(inboundRoutes).where(eq(inboundRoutes.id, parsed.id)).limit(1)
+    const row = await db
+      .select()
+      .from(inboundRoutes)
+      .where(and(eq(inboundRoutes.id, parsed.id), eq(inboundRoutes.accountId, tenant.accountId), eq(inboundRoutes.domain, tenant.domain)))
+      .limit(1)
     if (!row[0]) return notFound(c, 'Inbound route not found')
     return c.json({ inboundRoute: row[0] })
   } catch (error: unknown) {
@@ -116,6 +133,7 @@ inboundRoutesRoute.post(
       holidayCalendarId = null,
       routingPolicyId = null,
       recordingPolicyId = null,
+      ivrProfileId = null,
       targetType,
       targetValue,
       fallbackTargetType = 'voicemail',
@@ -133,6 +151,7 @@ inboundRoutesRoute.post(
     if (!statusValidation.success) return badRequest(c, statusValidation.error)
     const emergencyValidation = validateFlag01(isEmergency, 'Is Emergency')
     if (!emergencyValidation.success) return badRequest(c, emergencyValidation.error)
+    if (targetType === 'ivr' && ivrProfileId === null) return badRequest(c, 'ivrProfileId is required when targetType is ivr')
 
     try {
       const account = await db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1)
@@ -154,6 +173,10 @@ inboundRoutesRoute.post(
         const row = await db.select().from(recordingPolicies).where(eq(recordingPolicies.id, recordingPolicyId)).limit(1)
         if (!row[0]) return badRequest(c, 'Recording policy does not exist')
       }
+      if (ivrProfileId !== null) {
+        const row = await db.select().from(ivrProfiles).where(eq(ivrProfiles.id, ivrProfileId)).limit(1)
+        if (!row[0]) return badRequest(c, 'IVR profile does not exist')
+      }
 
       const existing = await db.select().from(inboundRoutes).where(and(
         eq(inboundRoutes.accountId, accountId),
@@ -172,6 +195,7 @@ inboundRoutesRoute.post(
         holidayCalendarId,
         routingPolicyId,
         recordingPolicyId,
+        ivrProfileId,
         targetType,
         targetValue,
         fallbackTargetType,
@@ -179,6 +203,14 @@ inboundRoutesRoute.post(
         isEmergency,
         isActive,
       }).returning()
+      await writeTenantAuditLog(c, {
+        accountId,
+        domain,
+        entityType: 'inbound_route',
+        entityId: created[0].id,
+        action: 'create',
+        afterPayload: created[0],
+      })
       return c.json({ inboundRoute: created[0] }, 201)
     } catch (error: unknown) {
       console.error(error)
@@ -199,6 +231,7 @@ inboundRoutesRoute.put('/:id', sValidator('json', bodySchema, validationHook), a
     holidayCalendarId = null,
     routingPolicyId = null,
     recordingPolicyId = null,
+    ivrProfileId = null,
     targetType,
     targetValue,
     fallbackTargetType = 'voicemail',
@@ -211,10 +244,14 @@ inboundRoutesRoute.put('/:id', sValidator('json', bodySchema, validationHook), a
   if (!statusValidation.success) return badRequest(c, statusValidation.error)
   const emergencyValidation = validateFlag01(isEmergency, 'Is Emergency')
   if (!emergencyValidation.success) return badRequest(c, emergencyValidation.error)
+  if (targetType === 'ivr' && ivrProfileId === null) return badRequest(c, 'ivrProfileId is required when targetType is ivr')
 
   try {
     const existing = await db.select().from(inboundRoutes).where(eq(inboundRoutes.id, parsed.id)).limit(1)
     if (!existing[0]) return notFound(c, 'Inbound route not found')
+    if (existing[0].accountId !== accountId || existing[0].domain !== domain) {
+      return badRequest(c, 'accountId and domain must match the existing inbound route tenant')
+    }
 
     const duplicate = await db.select().from(inboundRoutes).where(and(
       eq(inboundRoutes.accountId, accountId),
@@ -235,6 +272,7 @@ inboundRoutesRoute.put('/:id', sValidator('json', bodySchema, validationHook), a
       holidayCalendarId,
       routingPolicyId,
       recordingPolicyId,
+      ivrProfileId,
       targetType,
       targetValue,
       fallbackTargetType,
@@ -242,6 +280,15 @@ inboundRoutesRoute.put('/:id', sValidator('json', bodySchema, validationHook), a
       isEmergency,
       isActive,
     }).where(eq(inboundRoutes.id, parsed.id)).returning()
+    await writeTenantAuditLog(c, {
+      accountId,
+      domain,
+      entityType: 'inbound_route',
+      entityId: parsed.id,
+      action: 'update',
+      beforePayload: existing[0],
+      afterPayload: updated[0],
+    })
     return c.json({ inboundRoute: updated[0] })
   } catch (error: unknown) {
     console.error(error)
@@ -252,9 +299,29 @@ inboundRoutesRoute.put('/:id', sValidator('json', bodySchema, validationHook), a
 inboundRoutesRoute.delete('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const deleted = await db.delete(inboundRoutes).where(eq(inboundRoutes.id, parsed.id)).returning()
+    const existing = await db
+      .select()
+      .from(inboundRoutes)
+      .where(and(eq(inboundRoutes.id, parsed.id), eq(inboundRoutes.accountId, tenant.accountId), eq(inboundRoutes.domain, tenant.domain)))
+      .limit(1)
+    if (!existing[0]) return notFound(c, 'Inbound route not found')
+
+    const deleted = await db
+      .delete(inboundRoutes)
+      .where(and(eq(inboundRoutes.id, parsed.id), eq(inboundRoutes.accountId, tenant.accountId), eq(inboundRoutes.domain, tenant.domain)))
+      .returning()
     if (!deleted[0]) return notFound(c, 'Inbound route not found')
+    await writeTenantAuditLog(c, {
+      accountId: tenant.accountId,
+      domain: tenant.domain,
+      entityType: 'inbound_route',
+      entityId: parsed.id,
+      action: 'delete',
+      beforePayload: existing[0],
+    })
     return c.json({ inboundRoute: deleted[0] })
   } catch (error: unknown) {
     console.error(error)

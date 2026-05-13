@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QueryProvider } from './providers/QueryProvider';
+import { Modal } from './ui/Modal';
+import { FormField, Input, Select } from './ui/Form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 
 type PhoneNumber = {
   id: number;
@@ -10,6 +15,14 @@ type PhoneNumber = {
   status: 'Active' | 'Inactive' | 'Porting';
   type: 'Local' | 'Toll-Free' | 'International';
 };
+
+const numberSchema = z.object({
+  number: z.string().min(10, "Valid E.164 number required"),
+  provider: z.string().min(2, "Provider is required"),
+  accountId: z.coerce.number().min(1, "Account ID is required"),
+  type: z.enum(['Local', 'Toll-Free', 'International']),
+});
+type NumberFormData = z.infer<typeof numberSchema>;
 
 const MOCK_NUMBERS: PhoneNumber[] = [
   { id: 1, number: '+1 (416) 555-0198', provider: 'Twilio', accountId: 101, status: 'Active', type: 'Local' },
@@ -33,7 +46,12 @@ export function NumbersManager() {
 function NumbersManagerInner() {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ number: '', provider: '', accountId: '', type: 'Local' });
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<NumberFormData>({
+    resolver: zodResolver(numberSchema),
+    defaultValues: { number: '', provider: '', accountId: undefined, type: 'Local' }
+  });
 
   const { data, isLoading } = useQuery<{ numbers: PhoneNumber[] }>({
     queryKey: ['numbers'],
@@ -49,14 +67,11 @@ function NumbersManagerInner() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (newNum: typeof formData) => {
+    mutationFn: async (newNum: NumberFormData) => {
       const res = await fetch('http://127.0.0.1:8787/numbers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newNum,
-          accountId: parseInt(newNum.accountId),
-        }),
+        body: JSON.stringify(newNum),
       });
       if (!res.ok) throw new Error('Failed to create number');
       return res.json();
@@ -64,13 +79,51 @@ function NumbersManagerInner() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['numbers'] });
       setIsModalOpen(false);
-      setFormData({ number: '', provider: '', accountId: '', type: 'Local' });
+      reset();
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate(formData);
+  const updateMutation = useMutation({
+    mutationFn: async (num: NumberFormData & { id: number }) => {
+      const res = await fetch(`http://127.0.0.1:8787/numbers/${num.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(num),
+      });
+      if (!res.ok) throw new Error('Failed to update number');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['numbers'] });
+      setIsModalOpen(false);
+      setEditingId(null);
+      reset();
+    },
+  });
+
+  const onSubmit = (formData: NumberFormData) => {
+    if (editingId) {
+      updateMutation.mutate({ ...formData, id: editingId });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const openEdit = (num: PhoneNumber) => {
+    reset({
+      number: num.number,
+      provider: num.provider,
+      accountId: num.accountId,
+      type: num.type
+    });
+    setEditingId(num.id);
+    setIsModalOpen(true);
+  };
+
+  const openCreate = () => {
+    reset({ number: '', provider: '', accountId: undefined, type: 'Local' });
+    setEditingId(null);
+    setIsModalOpen(true);
   };
 
   return (
@@ -82,7 +135,7 @@ function NumbersManagerInner() {
         </div>
         <button 
           className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreate}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
           Provision New Number
@@ -150,7 +203,10 @@ function NumbersManagerInner() {
                       </div>
                     </td>
                     <td className="px-8 py-6 text-right">
-                      <button className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all">
+                      <button 
+                        className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all"
+                        onClick={() => openEdit(num)}
+                      >
                         Configure
                       </button>
                     </td>
@@ -162,93 +218,57 @@ function NumbersManagerInner() {
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in duration-300">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
-          <div className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-[2.5rem] overflow-hidden border border-slate-100 dark:border-slate-700">
-            <div className="px-10 py-8 border-b border-slate-50 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Provision New Asset</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Search and acquire a new DID for your infrastructure.</p>
-              </div>
-              <button className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:text-slate-400 transition-colors" onClick={() => setIsModalOpen(false)}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="p-10 space-y-8">
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Phone Number (E.164)</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="+1 (xxx) xxx-xxxx"
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium font-mono"
-                    value={formData.number}
-                    onChange={(e) => setFormData({ ...formData, number: e.target.value })}
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Classification</label>
-                    <select 
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium appearance-none"
-                      value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    >
-                      <option>Local</option>
-                      <option>Toll-Free</option>
-                      <option>International</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Carrier Provider</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Twilio"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium"
-                      value={formData.provider}
-                      onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Parent Account ID</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="Enter system ID"
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium font-mono"
-                    value={formData.accountId}
-                    onChange={(e) => setFormData({ ...formData, accountId: e.target.value })}
-                  />
-                </div>
-              </div>
-              
-              <div className="pt-4 flex gap-4">
-                <button 
-                  type="button" 
-                  className="flex-1 py-4 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-600 dark:bg-slate-700 transition-all"
-                  onClick={() => setIsModalOpen(false)}
-                >
-                  Discard
-                </button>
-                <button 
-                  type="submit" 
-                  className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
-                  disabled={createMutation.isPending}
-                >
-                  {createMutation.isPending ? 'Processing...' : 'Provision Number'}
-                </button>
-              </div>
-            </form>
+      <Modal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Asset' : 'Provision New Asset'}
+        footer={
+          <div className="flex gap-4 w-full">
+            <button 
+              type="button" 
+              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit(onSubmit)}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Save Changes' : 'Provision Number')}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <form id="number-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+          <FormField label="Phone Number (E.164)" error={errors.number} required>
+            <Input {...register('number')} placeholder="+1 (xxx) xxx-xxxx" className="font-mono" error={!!errors.number} />
+          </FormField>
+          
+          <div className="grid grid-cols-2 gap-6">
+            <FormField label="Classification" error={errors.type} required>
+              <Select 
+                {...register('type')} 
+                options={[
+                  { label: 'Local', value: 'Local' },
+                  { label: 'Toll-Free', value: 'Toll-Free' },
+                  { label: 'International', value: 'International' },
+                ]}
+                error={!!errors.type} 
+              />
+            </FormField>
+            
+            <FormField label="Carrier Provider" error={errors.provider} required>
+              <Input {...register('provider')} placeholder="e.g. Twilio" error={!!errors.provider} />
+            </FormField>
+          </div>
+          
+          <FormField label="Parent Account ID" error={errors.accountId} required>
+            <Input type="number" {...register('accountId')} placeholder="Enter system ID" className="font-mono" error={!!errors.accountId} />
+          </FormField>
+        </form>
+      </Modal>
     </div>
   );
 }

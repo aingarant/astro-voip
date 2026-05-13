@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QueryProvider } from './providers/QueryProvider';
+import { Drawer } from './ui/Drawer';
+import { FormField, Input } from './ui/Form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 
 type Subscriber = {
   id: number;
@@ -11,6 +16,16 @@ type Subscriber = {
   domain: string;
 };
 
+const subscriberSchema = z.object({
+  accountId: z.coerce.number().min(1, "Account ID is required"),
+  extensionId: z.coerce.number().min(1, "Extension ID is required"),
+  defaultDid: z.string().min(10, "Valid DID pattern required"),
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  domain: z.string().min(5, "Domain is required"),
+  password: z.string().optional(),
+});
+type SubscriberFormData = z.infer<typeof subscriberSchema>;
+
 const MOCK_SUBSCRIBERS: Subscriber[] = [
   { id: 1, accountId: 101, extensionId: 1001, defaultDid: '+1 (416) 555-0198', username: 'alice_sip', domain: 'sip.iqfone.com' },
   { id: 2, accountId: 101, extensionId: 1002, defaultDid: '+1 (416) 555-0199', username: 'bob_dev', domain: 'sip.iqfone.com' },
@@ -20,13 +35,6 @@ const MOCK_SUBSCRIBERS: Subscriber[] = [
   { id: 6, accountId: 105, extensionId: 5001, defaultDid: '+1 (310) 555-7788', username: 'warehouse_01', domain: 'sip.iqfone.com' },
   { id: 7, accountId: 105, extensionId: 5002, defaultDid: '+1 (310) 555-7789', username: 'warehouse_02', domain: 'sip.iqfone.com' },
   { id: 8, accountId: 101, extensionId: 1003, defaultDid: '+1 (416) 555-0200', username: 'charlie_sales', domain: 'sip.iqfone.com' },
-  { id: 9, accountId: 106, extensionId: 6001, defaultDid: '+33 1 70 38 00 00', username: 'paris_office', domain: 'sip.iqfone.com' },
-  { id: 10, accountId: 107, extensionId: 7001, defaultDid: '+1 (604) 555-1234', username: 'vancouver_tech', domain: 'sip.iqfone.com' },
-  { id: 11, accountId: 108, extensionId: 8001, defaultDid: '+1 (512) 555-5555', username: 'austin_remote', domain: 'sip.iqfone.com' },
-  { id: 12, accountId: 101, extensionId: 1004, defaultDid: '+1 (416) 555-0300', username: 'david_it', domain: 'sip.iqfone.com' },
-  { id: 13, accountId: 102, extensionId: 2002, defaultDid: '+1 (800) 555-0101', username: 'support_lead', domain: 'sip.iqfone.com' },
-  { id: 14, accountId: 103, extensionId: 3011, defaultDid: '+44 20 7123 4568', username: 'london_hr', domain: 'sip.iqfone.com' },
-  { id: 15, accountId: 104, extensionId: 4002, defaultDid: '+1 (212) 555-0988', username: 'finance_01', domain: 'sip.iqfone.com' },
 ];
 
 export function SubscribersManager() {
@@ -39,21 +47,17 @@ export function SubscribersManager() {
 
 function SubscribersManagerInner() {
   const queryClient = useQueryClient();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    accountId: '',
-    extensionId: '',
-    defaultDid: '',
-    username: '',
-    domain: '',
-    password: ''
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<SubscriberFormData>({
+    resolver: zodResolver(subscriberSchema),
+    defaultValues: { accountId: undefined, extensionId: undefined, defaultDid: '', username: '', domain: 'sip.iqfone.com', password: '' }
   });
 
   const { data, isLoading } = useQuery<{ subscribers: Subscriber[] }>({
     queryKey: ['subscribers'],
     queryFn: async () => {
-      // In a real app, this would fetch from the API. 
-      // For visualization, we'll return mock data if the API fails or is unavailable.
       try {
         const res = await fetch('http://127.0.0.1:8787/subscribers');
         if (!res.ok) throw new Error('API Unavailable');
@@ -65,29 +69,65 @@ function SubscribersManagerInner() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (newSub: typeof formData) => {
+    mutationFn: async (newSub: SubscriberFormData) => {
       const res = await fetch('http://127.0.0.1:8787/subscribers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newSub,
-          accountId: parseInt(newSub.accountId),
-          extensionId: parseInt(newSub.extensionId),
-        }),
+        body: JSON.stringify(newSub),
       });
       if (!res.ok) throw new Error('Failed to create subscriber');
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subscribers'] });
-      setIsModalOpen(false);
-      setFormData({ accountId: '', extensionId: '', defaultDid: '', username: '', domain: '', password: '' });
+      setIsDrawerOpen(false);
+      reset();
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate(formData);
+  const updateMutation = useMutation({
+    mutationFn: async (sub: SubscriberFormData & { id: number }) => {
+      const res = await fetch(`http://127.0.0.1:8787/subscribers/${sub.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub),
+      });
+      if (!res.ok) throw new Error('Failed to update subscriber');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subscribers'] });
+      setIsDrawerOpen(false);
+      setEditingId(null);
+      reset();
+    },
+  });
+
+  const onSubmit = (formData: SubscriberFormData) => {
+    if (editingId) {
+      updateMutation.mutate({ ...formData, id: editingId });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const openEdit = (sub: Subscriber) => {
+    reset({
+      accountId: sub.accountId,
+      extensionId: sub.extensionId,
+      defaultDid: sub.defaultDid,
+      username: sub.username,
+      domain: sub.domain,
+      password: ''
+    });
+    setEditingId(sub.id);
+    setIsDrawerOpen(true);
+  };
+
+  const openCreate = () => {
+    reset({ accountId: undefined, extensionId: undefined, defaultDid: '', username: '', domain: 'sip.iqfone.com', password: '' });
+    setEditingId(null);
+    setIsDrawerOpen(true);
   };
 
   return (
@@ -99,7 +139,7 @@ function SubscribersManagerInner() {
         </div>
         <button 
           className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreate}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:scale-110 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
           Add Subscriber
@@ -163,7 +203,10 @@ function SubscribersManagerInner() {
                       </span>
                     </td>
                     <td className="px-8 py-6 text-right">
-                      <button className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all">
+                      <button 
+                        className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all"
+                        onClick={() => openEdit(sub)}
+                      >
                         Configure
                       </button>
                     </td>
@@ -175,115 +218,62 @@ function SubscribersManagerInner() {
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in duration-300">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
-          <div className="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-[2.5rem] overflow-hidden border border-slate-100 dark:border-slate-700">
-            <div className="px-10 py-8 border-b border-slate-50 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Provision Subscriber</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Create a new SIP user with custom authentication and routing.</p>
-              </div>
-              <button className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:text-slate-400 transition-colors" onClick={() => setIsModalOpen(false)}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="p-10 space-y-8">
-              <div className="grid grid-cols-2 gap-8">
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Account Association</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="Parent ID"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-mono"
-                      value={formData.accountId}
-                      onChange={(e) => setFormData({ ...formData, accountId: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Extension Mapping</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="Extension ID"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-mono"
-                      value={formData.extensionId}
-                      onChange={(e) => setFormData({ ...formData, extensionId: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Default DID</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="+1 (xxx) xxx-xxxx"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-mono"
-                      value={formData.defaultDid}
-                      onChange={(e) => setFormData({ ...formData, defaultDid: e.target.value })}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">SIP Username</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. alice_sip"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium"
-                      value={formData.username}
-                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Network Domain</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="sip.iqfone.com"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium"
-                      value={formData.domain}
-                      onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">SIP Password</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="••••••••••••"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              <div className="pt-4 flex gap-4">
-                <button 
-                  type="button" 
-                  className="flex-1 py-4 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-600 dark:bg-slate-700 transition-all"
-                  onClick={() => setIsModalOpen(false)}
-                >
-                  Discard
-                </button>
-                <button 
-                  type="submit" 
-                  className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
-                  disabled={createMutation.isPending}
-                >
-                  {createMutation.isPending ? 'Processing...' : 'Authorize Subscriber'}
-                </button>
-              </div>
-            </form>
+      <Drawer 
+        isOpen={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)}
+        title={editingId ? 'Edit Subscriber' : 'Provision Subscriber'}
+        description="Configure SIP user credentials and routing mappings."
+        footer={
+          <div className="flex gap-4 w-full">
+            <button 
+              type="button" 
+              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              onClick={() => setIsDrawerOpen(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit(onSubmit)}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Apply Changes' : 'Authorize Subscriber')}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <form id="subscriber-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 pt-4">
+          <div>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-widest">Routing Link</h4>
+            <div className="space-y-4">
+              <FormField label="Account ID" error={errors.accountId} required>
+                <Input type="number" {...register('accountId')} placeholder="e.g. 101" className="font-mono" error={!!errors.accountId} />
+              </FormField>
+              <FormField label="Extension ID" error={errors.extensionId} required>
+                <Input type="number" {...register('extensionId')} placeholder="e.g. 1001" className="font-mono" error={!!errors.extensionId} />
+              </FormField>
+              <FormField label="Default DID" error={errors.defaultDid} required>
+                <Input type="text" {...register('defaultDid')} placeholder="+1 (xxx) xxx-xxxx" className="font-mono" error={!!errors.defaultDid} />
+              </FormField>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-widest border-t border-slate-100 dark:border-slate-700 pt-6">SIP Credentials</h4>
+            <div className="space-y-4">
+              <FormField label="SIP Username" error={errors.username} required>
+                <Input type="text" {...register('username')} placeholder="e.g. alice_sip" error={!!errors.username} />
+              </FormField>
+              <FormField label="Network Domain" error={errors.domain} required>
+                <Input type="text" {...register('domain')} placeholder="sip.iqfone.com" error={!!errors.domain} />
+              </FormField>
+              <FormField label="SIP Password" description={editingId ? "Leave blank to keep current password" : "Required for initial provision"} error={errors.password} required={!editingId}>
+                <Input type="password" {...register('password')} placeholder="••••••••••••" error={!!errors.password} />
+              </FormField>
+            </div>
+          </div>
+        </form>
+      </Drawer>
     </div>
   );
 }

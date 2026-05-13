@@ -7,6 +7,8 @@ import { db } from '../db'
 import { accounts, timeConditions } from '../db/schema'
 import { badRequest, conflict, internalError, normalizePagination, notFound, parseIdParam } from '../utils/http'
 import { validateFlag01, validateRequiredString } from '../utils/validators'
+import { getTenantScopeFromQuery } from '../utils/tenant'
+import { writeTenantAuditLog } from '../utils/audit'
 
 const timeConditionsRoute = new Hono()
 
@@ -61,8 +63,15 @@ timeConditionsRoute.get(
   }),
   async (c) => {
     try {
+      const tenant = getTenantScopeFromQuery(c)
+      if ('error' in tenant) return badRequest(c, tenant.error)
       const { limit, offset } = normalizePagination(c.req.query('limit'), c.req.query('offset'))
-      const rows = await db.select().from(timeConditions).limit(limit).offset(offset)
+      const rows = await db
+        .select()
+        .from(timeConditions)
+        .where(and(eq(timeConditions.accountId, tenant.accountId), eq(timeConditions.domain, tenant.domain)))
+        .limit(limit)
+        .offset(offset)
       return c.json({ timeConditions: rows, page: { limit, offset } })
     } catch (error: unknown) {
       console.error(error)
@@ -74,8 +83,14 @@ timeConditionsRoute.get(
 timeConditionsRoute.get('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const row = await db.select().from(timeConditions).where(eq(timeConditions.id, parsed.id)).limit(1)
+    const row = await db
+      .select()
+      .from(timeConditions)
+      .where(and(eq(timeConditions.id, parsed.id), eq(timeConditions.accountId, tenant.accountId), eq(timeConditions.domain, tenant.domain)))
+      .limit(1)
     if (!row[0]) return notFound(c, 'Time condition not found')
     return c.json({ timeCondition: row[0] })
   } catch (error: unknown) {
@@ -140,6 +155,14 @@ timeConditionsRoute.post(
         noMatchActionTarget,
         isActive,
       }).returning()
+      await writeTenantAuditLog(c, {
+        accountId,
+        domain,
+        entityType: 'time_condition',
+        entityId: created[0].id,
+        action: 'create',
+        afterPayload: created[0],
+      })
       return c.json({ timeCondition: created[0] }, 201)
     } catch (error: unknown) {
       console.error(error)
@@ -168,6 +191,9 @@ timeConditionsRoute.put('/:id', sValidator('json', bodySchema, validationHook), 
   try {
     const existing = await db.select().from(timeConditions).where(eq(timeConditions.id, parsed.id)).limit(1)
     if (!existing[0]) return notFound(c, 'Time condition not found')
+    if (existing[0].accountId !== accountId || existing[0].domain !== domain) {
+      return badRequest(c, 'accountId and domain must match the existing time condition tenant')
+    }
 
     const duplicate = await db
       .select()
@@ -188,6 +214,15 @@ timeConditionsRoute.put('/:id', sValidator('json', bodySchema, validationHook), 
       noMatchActionTarget,
       isActive,
     }).where(eq(timeConditions.id, parsed.id)).returning()
+    await writeTenantAuditLog(c, {
+      accountId,
+      domain,
+      entityType: 'time_condition',
+      entityId: parsed.id,
+      action: 'update',
+      beforePayload: existing[0],
+      afterPayload: updated[0],
+    })
     return c.json({ timeCondition: updated[0] })
   } catch (error: unknown) {
     console.error(error)
@@ -198,9 +233,29 @@ timeConditionsRoute.put('/:id', sValidator('json', bodySchema, validationHook), 
 timeConditionsRoute.delete('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const deleted = await db.delete(timeConditions).where(eq(timeConditions.id, parsed.id)).returning()
+    const existing = await db
+      .select()
+      .from(timeConditions)
+      .where(and(eq(timeConditions.id, parsed.id), eq(timeConditions.accountId, tenant.accountId), eq(timeConditions.domain, tenant.domain)))
+      .limit(1)
+    if (!existing[0]) return notFound(c, 'Time condition not found')
+
+    const deleted = await db
+      .delete(timeConditions)
+      .where(and(eq(timeConditions.id, parsed.id), eq(timeConditions.accountId, tenant.accountId), eq(timeConditions.domain, tenant.domain)))
+      .returning()
     if (!deleted[0]) return notFound(c, 'Time condition not found')
+    await writeTenantAuditLog(c, {
+      accountId: tenant.accountId,
+      domain: tenant.domain,
+      entityType: 'time_condition',
+      entityId: parsed.id,
+      action: 'delete',
+      beforePayload: existing[0],
+    })
     return c.json({ timeCondition: deleted[0] })
   } catch (error: unknown) {
     console.error(error)

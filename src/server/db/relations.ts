@@ -87,10 +87,15 @@ export const ivrProfilesRelations = relations(ivrProfiles, ({ one, many }) => ({
 		fields: [ivrProfiles.accountId],
 		references: [accounts.id],
 	}),
+	activeVersion: one(ivrVersions, {
+		fields: [ivrProfiles.activeVersionId],
+		references: [ivrVersions.id],
+	}),
 	prompts: many(ivrPrompts),
 	versions: many(ivrVersions),
 	menus: many(ivrMenus),
 	flows: many(ivrFlows),
+	inboundRoutes: many(inboundRoutes),
 }));
 
 export const ivrPromptsRelations = relations(ivrPrompts, ({ one }) => ({
@@ -262,6 +267,10 @@ export const inboundRoutesRelations = relations(inboundRoutes, ({ one }) => ({
 	recordingPolicy: one(recordingPolicies, {
 		fields: [inboundRoutes.recordingPolicyId],
 		references: [recordingPolicies.id],
+	}),
+	ivrProfile: one(ivrProfiles, {
+		fields: [inboundRoutes.ivrProfileId],
+		references: [ivrProfiles.id],
 	}),
 }));
 

@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QueryProvider } from './providers/QueryProvider';
+import { Drawer } from './ui/Drawer';
+import { FormField, Input, Toggle } from './ui/Form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 
 type Account = {
   id: number;
@@ -8,6 +13,13 @@ type Account = {
   domain: string;
   isActive: number;
 };
+
+const accountSchema = z.object({
+  extAccountId: z.string().min(3, "Identifier must be at least 3 characters").max(50),
+  domain: z.string().min(5, "Valid domain is required"),
+  isActive: z.boolean(),
+});
+type AccountFormData = z.infer<typeof accountSchema>;
 
 const MOCK_ACCOUNTS: Account[] = [
   { id: 1, extAccountId: 'TWILIO_NA_EAST_01', domain: 'sip.twilio.com', isActive: 1 },
@@ -34,9 +46,13 @@ export function AccountsManager() {
 
 function AccountsManagerInner() {
   const queryClient = useQueryClient();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState({ extAccountId: '', domain: '', isActive: 1 });
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<AccountFormData>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: { extAccountId: '', domain: '', isActive: true }
+  });
 
   const { data, isLoading } = useQuery<{ accounts: Account[] }>({
     queryKey: ['accounts'],
@@ -52,7 +68,7 @@ function AccountsManagerInner() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (newAccount: { extAccountId: string; domain: string }) => {
+    mutationFn: async (newAccount: { extAccountId: string; domain: string; isActive: number }) => {
       const res = await fetch('http://127.0.0.1:8787/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,8 +79,8 @@ function AccountsManagerInner() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      setIsModalOpen(false);
-      setFormData({ extAccountId: '', domain: '', isActive: 1 });
+      setIsDrawerOpen(false);
+      reset();
     },
   });
 
@@ -80,31 +96,39 @@ function AccountsManagerInner() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      setIsModalOpen(false);
+      setIsDrawerOpen(false);
       setEditingId(null);
-      setFormData({ extAccountId: '', domain: '', isActive: 1 });
+      reset();
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = (formData: AccountFormData) => {
+    const payload = {
+      extAccountId: formData.extAccountId,
+      domain: formData.domain,
+      isActive: formData.isActive ? 1 : 0
+    };
     if (editingId) {
-      updateMutation.mutate({ ...formData, id: editingId });
+      updateMutation.mutate({ ...payload, id: editingId });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(payload);
     }
   };
 
   const openEdit = (acc: Account) => {
-    setFormData({ extAccountId: acc.extAccountId, domain: acc.domain, isActive: acc.isActive });
+    reset({
+      extAccountId: acc.extAccountId,
+      domain: acc.domain,
+      isActive: acc.isActive === 1
+    });
     setEditingId(acc.id);
-    setIsModalOpen(true);
+    setIsDrawerOpen(true);
   };
 
   const openCreate = () => {
-    setFormData({ extAccountId: '', domain: '', isActive: 1 });
+    reset({ extAccountId: '', domain: '', isActive: true });
     setEditingId(null);
-    setIsModalOpen(true);
+    setIsDrawerOpen(true);
   };
 
   return (
@@ -193,83 +217,44 @@ function AccountsManagerInner() {
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in duration-300">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
-          <div className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-[2.5rem] overflow-hidden border border-slate-100 dark:border-slate-700">
-            <div className="px-10 py-8 border-b border-slate-50 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">{editingId ? 'Configure Account' : 'New SIP Account'}</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Provide the necessary credentials for the account.</p>
-              </div>
-              <button className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:text-slate-400 transition-colors" onClick={() => setIsModalOpen(false)}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="p-10 space-y-8">
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Account Identifier</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. TWILIO_PROD_01"
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium"
-                    value={formData.extAccountId}
-                    onChange={(e) => setFormData({ ...formData, extAccountId: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">SIP Domain / Gateway</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. iqfone.sip.twilio.com"
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium font-mono"
-                    value={formData.domain}
-                    onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
-                  />
-                </div>
-                {editingId && (
-                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                    <div>
-                      <span className="block text-[10px] font-bold text-slate-900 dark:text-white uppercase tracking-widest">Operational Status</span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Toggle account connectivity</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="sr-only peer"
-                        checked={formData.isActive === 1}
-                        onChange={(e) => setFormData({ ...formData, isActive: e.target.checked ? 1 : 0 })}
-                      />
-                      <div className="w-11 h-6 bg-slate-200 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white dark:bg-slate-800 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                    </label>
-                  </div>
-                )}
-              </div>
-              
-              <div className="pt-4 flex gap-4">
-                <button 
-                  type="button" 
-                  className="flex-1 py-4 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-600 dark:bg-slate-700 transition-all"
-                  onClick={() => setIsModalOpen(false)}
-                >
-                  Discard
-                </button>
-                <button 
-                  type="submit" 
-                  className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                >
-                  {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Apply Changes' : 'Create Account')}
-                </button>
-              </div>
-            </form>
+      <Drawer 
+        isOpen={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)}
+        title={editingId ? 'Configure Account' : 'New SIP Account'}
+        description="Provide the necessary credentials for the account."
+        footer={
+          <div className="flex gap-4 w-full">
+            <button 
+              type="button" 
+              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              onClick={() => setIsDrawerOpen(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit(onSubmit)}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Apply Changes' : 'Create Account')}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <form id="account-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+          <FormField label="Account Identifier" description="e.g. TWILIO_PROD_01" error={errors.extAccountId} required>
+            <Input {...register('extAccountId')} placeholder="Enter identifier..." error={!!errors.extAccountId} />
+          </FormField>
+          
+          <FormField label="SIP Domain / Gateway" description="e.g. sip.twilio.com" error={errors.domain} required>
+            <Input {...register('domain')} placeholder="Enter domain..." className="font-mono" error={!!errors.domain} />
+          </FormField>
+          
+          <FormField label="Operational Status" description="Toggle account connectivity">
+            <Toggle {...register('isActive')} />
+          </FormField>
+        </form>
+      </Drawer>
     </div>
   );
 }

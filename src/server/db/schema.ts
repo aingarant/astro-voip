@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, integer, timestamp, foreignKey, index, real, smallint, text } from "drizzle-orm/pg-core"
+import { pgTable, serial, varchar, integer, timestamp, foreignKey, index, uniqueIndex, real, smallint, text } from "drizzle-orm/pg-core"
 import { relations, sql } from "drizzle-orm"
 
 
@@ -464,6 +464,7 @@ export const ivrProfiles = pgTable("ivr_profiles", {
 	accountId: integer("account_id").default(0).notNull(),
 	domain: varchar({ length: 64 }).default('').notNull(),
 	name: varchar({ length: 128 }).default('').notNull(),
+	activeVersionId: integer("active_version_id"),
 	description: varchar({ length: 255 }).default('').notNull(),
 	defaultLanguage: varchar("default_language", { length: 16 }).default('en-US').notNull(),
 	timezone: varchar({ length: 64 }).default('UTC').notNull(),
@@ -472,6 +473,7 @@ export const ivrProfiles = pgTable("ivr_profiles", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("ivr_profiles_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	uniqueIndex("ivr_profiles_account_domain_name_unq").on(table.accountId, table.domain, table.name),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -496,6 +498,7 @@ export const ivrPrompts = pgTable("ivr_prompts", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("ivr_prompts_account_profile_key_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.promptKey.asc().nullsLast().op("text_ops")),
+	uniqueIndex("ivr_prompts_profile_key_language_unq").on(table.ivrProfileId, table.promptKey, table.language),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -523,6 +526,7 @@ export const ivrVersions = pgTable("ivr_versions", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("ivr_versions_account_profile_version_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.version.asc().nullsLast().op("int4_ops")),
+	uniqueIndex("ivr_versions_profile_version_unq").on(table.ivrProfileId, table.version),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -555,6 +559,7 @@ export const ivrMenus = pgTable("ivr_menus", {
 }, (table) => [
 	index("ivr_menus_account_profile_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.name.asc().nullsLast().op("text_ops")),
 	index("ivr_menus_profile_root_idx").using("btree", table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.isRoot.asc().nullsLast().op("int4_ops")),
+	uniqueIndex("ivr_menus_profile_name_unq").on(table.ivrProfileId, table.name),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -600,6 +605,7 @@ export const ivrMenuOptions = pgTable("ivr_menu_options", {
 }, (table) => [
 	index("ivr_menu_options_menu_digit_idx").using("btree", table.ivrMenuId.asc().nullsLast().op("int4_ops"), table.digit.asc().nullsLast().op("text_ops")),
 	index("ivr_menu_options_menu_priority_idx").using("btree", table.ivrMenuId.asc().nullsLast().op("int4_ops"), table.priority.asc().nullsLast().op("int4_ops")),
+	uniqueIndex("ivr_menu_options_menu_digit_unq").on(table.ivrMenuId, table.digit),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -629,6 +635,7 @@ export const queueHandoffs = pgTable("queue_handoffs", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("queue_handoffs_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	uniqueIndex("queue_handoffs_account_domain_name_unq").on(table.accountId, table.domain, table.name),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -696,6 +703,7 @@ export const timeConditions = pgTable("time_conditions", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("time_conditions_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	uniqueIndex("time_conditions_account_domain_name_unq").on(table.accountId, table.domain, table.name),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -743,6 +751,7 @@ export const holidayCalendars = pgTable("holiday_calendars", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("holiday_calendars_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	uniqueIndex("holiday_calendars_account_domain_name_unq").on(table.accountId, table.domain, table.name),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -795,6 +804,7 @@ export const routingPolicies = pgTable("routing_policies", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
 }, (table) => [
 	index("routing_policies_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	uniqueIndex("routing_policies_account_domain_name_unq").on(table.accountId, table.domain, table.name),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -839,6 +849,7 @@ export const inboundRoutes = pgTable("inbound_routes", {
 	holidayCalendarId: integer("holiday_calendar_id"),
 	routingPolicyId: integer("routing_policy_id"),
 	recordingPolicyId: integer("recording_policy_id"),
+	ivrProfileId: integer("ivr_profile_id"),
 	targetType: varchar("target_type", { length: 32 }).default('ivr').notNull(),
 	targetValue: varchar("target_value", { length: 255 }).default('').notNull(),
 	fallbackTargetType: varchar("fallback_target_type", { length: 32 }).default('voicemail').notNull(),
@@ -850,6 +861,7 @@ export const inboundRoutes = pgTable("inbound_routes", {
 }, (table) => [
 	index("inbound_routes_account_domain_did_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.did.asc().nullsLast().op("text_ops")),
 	index("inbound_routes_priority_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.priority.asc().nullsLast().op("int4_ops")),
+	uniqueIndex("inbound_routes_account_domain_did_priority_unq").on(table.accountId, table.domain, table.did, table.priority),
 	foreignKey({
 		columns: [table.accountId],
 		foreignColumns: [accounts.id],
@@ -874,6 +886,11 @@ export const inboundRoutes = pgTable("inbound_routes", {
 		columns: [table.recordingPolicyId],
 		foreignColumns: [recordingPolicies.id],
 		name: "inbound_routes_recording_policy_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.ivrProfileId],
+		foreignColumns: [ivrProfiles.id],
+		name: "inbound_routes_ivr_profile_id_fkey"
 	}).onDelete("set null"),
 ]);
 

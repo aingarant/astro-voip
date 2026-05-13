@@ -7,6 +7,8 @@ import { db } from '../db'
 import { accounts, routingPolicies } from '../db/schema'
 import { badRequest, conflict, internalError, normalizePagination, notFound, parseIdParam } from '../utils/http'
 import { validateFlag01, validateRequiredString } from '../utils/validators'
+import { getTenantScopeFromQuery } from '../utils/tenant'
+import { writeTenantAuditLog } from '../utils/audit'
 
 const routingPoliciesRoute = new Hono()
 
@@ -67,8 +69,15 @@ routingPoliciesRoute.get(
   }),
   async (c) => {
     try {
+      const tenant = getTenantScopeFromQuery(c)
+      if ('error' in tenant) return badRequest(c, tenant.error)
       const { limit, offset } = normalizePagination(c.req.query('limit'), c.req.query('offset'))
-      const rows = await db.select().from(routingPolicies).limit(limit).offset(offset)
+      const rows = await db
+        .select()
+        .from(routingPolicies)
+        .where(and(eq(routingPolicies.accountId, tenant.accountId), eq(routingPolicies.domain, tenant.domain)))
+        .limit(limit)
+        .offset(offset)
       return c.json({ routingPolicies: rows, page: { limit, offset } })
     } catch (error: unknown) {
       console.error(error)
@@ -80,8 +89,14 @@ routingPoliciesRoute.get(
 routingPoliciesRoute.get('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const row = await db.select().from(routingPolicies).where(eq(routingPolicies.id, parsed.id)).limit(1)
+    const row = await db
+      .select()
+      .from(routingPolicies)
+      .where(and(eq(routingPolicies.id, parsed.id), eq(routingPolicies.accountId, tenant.accountId), eq(routingPolicies.domain, tenant.domain)))
+      .limit(1)
     if (!row[0]) return notFound(c, 'Routing policy not found')
     return c.json({ routingPolicy: row[0] })
   } catch (error: unknown) {
@@ -151,6 +166,14 @@ routingPoliciesRoute.post(
         failoverActionTarget,
         isActive,
       }).returning()
+      await writeTenantAuditLog(c, {
+        accountId,
+        domain,
+        entityType: 'routing_policy',
+        entityId: created[0].id,
+        action: 'create',
+        afterPayload: created[0],
+      })
       return c.json({ routingPolicy: created[0] }, 201)
     } catch (error: unknown) {
       console.error(error)
@@ -181,6 +204,9 @@ routingPoliciesRoute.put('/:id', sValidator('json', bodySchema, validationHook),
   try {
     const existing = await db.select().from(routingPolicies).where(eq(routingPolicies.id, parsed.id)).limit(1)
     if (!existing[0]) return notFound(c, 'Routing policy not found')
+    if (existing[0].accountId !== accountId || existing[0].domain !== domain) {
+      return badRequest(c, 'accountId and domain must match the existing routing policy tenant')
+    }
 
     const duplicate = await db
       .select()
@@ -204,6 +230,15 @@ routingPoliciesRoute.put('/:id', sValidator('json', bodySchema, validationHook),
       failoverActionTarget,
       isActive,
     }).where(eq(routingPolicies.id, parsed.id)).returning()
+    await writeTenantAuditLog(c, {
+      accountId,
+      domain,
+      entityType: 'routing_policy',
+      entityId: parsed.id,
+      action: 'update',
+      beforePayload: existing[0],
+      afterPayload: updated[0],
+    })
     return c.json({ routingPolicy: updated[0] })
   } catch (error: unknown) {
     console.error(error)
@@ -214,9 +249,29 @@ routingPoliciesRoute.put('/:id', sValidator('json', bodySchema, validationHook),
 routingPoliciesRoute.delete('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const deleted = await db.delete(routingPolicies).where(eq(routingPolicies.id, parsed.id)).returning()
+    const existing = await db
+      .select()
+      .from(routingPolicies)
+      .where(and(eq(routingPolicies.id, parsed.id), eq(routingPolicies.accountId, tenant.accountId), eq(routingPolicies.domain, tenant.domain)))
+      .limit(1)
+    if (!existing[0]) return notFound(c, 'Routing policy not found')
+
+    const deleted = await db
+      .delete(routingPolicies)
+      .where(and(eq(routingPolicies.id, parsed.id), eq(routingPolicies.accountId, tenant.accountId), eq(routingPolicies.domain, tenant.domain)))
+      .returning()
     if (!deleted[0]) return notFound(c, 'Routing policy not found')
+    await writeTenantAuditLog(c, {
+      accountId: tenant.accountId,
+      domain: tenant.domain,
+      entityType: 'routing_policy',
+      entityId: parsed.id,
+      action: 'delete',
+      beforePayload: existing[0],
+    })
     return c.json({ routingPolicy: deleted[0] })
   } catch (error: unknown) {
     console.error(error)

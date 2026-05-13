@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QueryProvider } from './providers/QueryProvider';
+import { Drawer } from './ui/Drawer';
+import { FormField, Input, Select } from './ui/Form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 
 type ServerNode = {
   id: number;
@@ -12,6 +17,14 @@ type ServerNode = {
   cpuUsage: number;
   memUsage: number;
 };
+
+const serverSchema = z.object({
+  name: z.string().min(2, "Hostname is required"),
+  type: z.enum(['Kamailio', 'FreeSWITCH', 'RTPEngine', 'PostgreSQL']),
+  ipAddress: z.string().min(7, "Valid IP address required"),
+  region: z.string().min(2, "Region is required"),
+});
+type ServerFormData = z.infer<typeof serverSchema>;
 
 const MOCK_SERVERS: ServerNode[] = [
   { id: 1, name: 'kamailio-edge-01', type: 'Kamailio', ipAddress: '10.0.1.10', region: 'NA-East-1', status: 'Online', cpuUsage: 12, memUsage: 45 },
@@ -35,6 +48,13 @@ export function ServersManager() {
 
 function ServersManagerInner() {
   const queryClient = useQueryClient();
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ServerFormData>({
+    resolver: zodResolver(serverSchema),
+    defaultValues: { name: '', type: 'Kamailio', ipAddress: '', region: '' }
+  });
 
   const { data, isLoading } = useQuery<{ servers: ServerNode[] }>({
     queryKey: ['servers'],
@@ -49,6 +69,66 @@ function ServersManagerInner() {
     },
   });
 
+  const createMutation = useMutation({
+    mutationFn: async (newSrv: ServerFormData) => {
+      const res = await fetch('http://127.0.0.1:8787/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSrv),
+      });
+      if (!res.ok) throw new Error('Failed to create server');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      setIsDrawerOpen(false);
+      reset();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (srv: ServerFormData & { id: number }) => {
+      const res = await fetch(`http://127.0.0.1:8787/servers/${srv.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(srv),
+      });
+      if (!res.ok) throw new Error('Failed to update server');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      setIsDrawerOpen(false);
+      setEditingId(null);
+      reset();
+    },
+  });
+
+  const onSubmit = (formData: ServerFormData) => {
+    if (editingId) {
+      updateMutation.mutate({ ...formData, id: editingId });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const openEdit = (node: ServerNode) => {
+    reset({
+      name: node.name,
+      type: node.type,
+      ipAddress: node.ipAddress,
+      region: node.region
+    });
+    setEditingId(node.id);
+    setIsDrawerOpen(true);
+  };
+
+  const openCreate = () => {
+    reset({ name: '', type: 'Kamailio', ipAddress: '', region: '' });
+    setEditingId(null);
+    setIsDrawerOpen(true);
+  };
+
   return (
     <div className="space-y-10 animate-in fade-in duration-700">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
@@ -56,7 +136,10 @@ function ServersManagerInner() {
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Infrastructure Nodes</h2>
           <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Real-time telemetry and management for the global VoIP cluster.</p>
         </div>
-        <button className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group">
+        <button 
+          className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
+          onClick={openCreate}
+        >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
           Provision Node
         </button>
@@ -137,8 +220,11 @@ function ServersManagerInner() {
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  <button className="flex-1 py-3 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 dark:hover:bg-slate-600 dark:bg-slate-700 transition-all">
-                    Telemetry
+                  <button 
+                    className="flex-1 py-3 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 dark:hover:bg-slate-600 dark:bg-slate-700 transition-all"
+                    onClick={() => openEdit(node)}
+                  >
+                    Configure
                   </button>
                   <button className="flex-1 py-3 border border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-500 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:border-rose-100 hover:text-rose-500 hover:bg-rose-50 transition-all">
                     Restart
@@ -149,6 +235,58 @@ function ServersManagerInner() {
           ))
         )}
       </div>
+
+      <Drawer 
+        isOpen={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)}
+        title={editingId ? 'Edit Infrastructure Node' : 'Provision Node'}
+        description="Configure a new server node to join the VoIP cluster."
+        footer={
+          <div className="flex gap-4 w-full">
+            <button 
+              type="button" 
+              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              onClick={() => setIsDrawerOpen(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit(onSubmit)}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Save Changes' : 'Deploy Node')}
+            </button>
+          </div>
+        }
+      >
+        <form id="server-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+          <FormField label="Hostname" error={errors.name} required>
+            <Input {...register('name')} placeholder="e.g. kamailio-edge-04" className="font-mono" error={!!errors.name} />
+          </FormField>
+          
+          <FormField label="Architecture Type" error={errors.type} required>
+            <Select 
+              {...register('type')} 
+              options={[
+                { label: 'Kamailio (SIP Proxy)', value: 'Kamailio' },
+                { label: 'FreeSWITCH (Media Server)', value: 'FreeSWITCH' },
+                { label: 'RTPEngine (Media Proxy)', value: 'RTPEngine' },
+                { label: 'PostgreSQL (Database)', value: 'PostgreSQL' },
+              ]}
+              error={!!errors.type} 
+            />
+          </FormField>
+          
+          <FormField label="Internal IP Address" error={errors.ipAddress} required>
+            <Input {...register('ipAddress')} placeholder="e.g. 10.0.1.50" className="font-mono" error={!!errors.ipAddress} />
+          </FormField>
+          
+          <FormField label="Deployment Region" error={errors.region} required>
+            <Input {...register('region')} placeholder="e.g. NA-East-1" error={!!errors.region} />
+          </FormField>
+        </form>
+      </Drawer>
     </div>
   );
 }

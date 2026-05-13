@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QueryProvider } from './providers/QueryProvider';
+import { Modal } from './ui/Modal';
+import { FormField, Input, Select } from './ui/Form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 
 type User = {
   id: number;
@@ -9,6 +14,13 @@ type User = {
   role: 'Super Admin' | 'Admin' | 'Support';
   lastLogin: string;
 };
+
+const userSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Valid email is required"),
+  role: z.enum(['Super Admin', 'Admin', 'Support']),
+});
+type UserFormData = z.infer<typeof userSchema>;
 
 const MOCK_USERS: User[] = [
   { id: 1, name: 'Admin User', email: 'admin@iqfone.com', role: 'Super Admin', lastLogin: '2 mins ago' },
@@ -30,6 +42,13 @@ export function UsersManager() {
 
 function UsersManagerInner() {
   const queryClient = useQueryClient();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<UserFormData>({
+    resolver: zodResolver(userSchema),
+    defaultValues: { name: '', email: '', role: 'Admin' }
+  });
 
   const { data, isLoading } = useQuery<{ users: User[] }>({
     queryKey: ['users'],
@@ -44,6 +63,65 @@ function UsersManagerInner() {
     },
   });
 
+  const createMutation = useMutation({
+    mutationFn: async (newUser: UserFormData) => {
+      const res = await fetch('http://127.0.0.1:8787/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      });
+      if (!res.ok) throw new Error('Failed to create user');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setIsModalOpen(false);
+      reset();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (user: UserFormData & { id: number }) => {
+      const res = await fetch(`http://127.0.0.1:8787/users/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(user),
+      });
+      if (!res.ok) throw new Error('Failed to update user');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setIsModalOpen(false);
+      setEditingId(null);
+      reset();
+    },
+  });
+
+  const onSubmit = (formData: UserFormData) => {
+    if (editingId) {
+      updateMutation.mutate({ ...formData, id: editingId });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const openEdit = (user: User) => {
+    reset({
+      name: user.name,
+      email: user.email,
+      role: user.role
+    });
+    setEditingId(user.id);
+    setIsModalOpen(true);
+  };
+
+  const openCreate = () => {
+    reset({ name: '', email: '', role: 'Admin' });
+    setEditingId(null);
+    setIsModalOpen(true);
+  };
+
   return (
     <div className="space-y-10 animate-in fade-in duration-700">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
@@ -51,7 +129,10 @@ function UsersManagerInner() {
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Portal Access Control</h2>
           <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Manage administrative users, RBAC roles, and portal security logs.</p>
         </div>
-        <button className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group">
+        <button 
+          className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
+          onClick={openCreate}
+        >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
           Invite Administrator
         </button>
@@ -119,7 +200,10 @@ function UsersManagerInner() {
                     </td>
                     <td className="px-8 py-6 text-right">
                       <div className="flex justify-end gap-2">
-                        <button className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center hover:bg-indigo-50 hover:text-indigo-600 transition-all">
+                        <button 
+                          className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center hover:bg-indigo-50 hover:text-indigo-600 transition-all"
+                          onClick={() => openEdit(user)}
+                        >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
                         </button>
                         <button className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-all">
@@ -134,6 +218,52 @@ function UsersManagerInner() {
           </table>
         </div>
       </div>
+
+      <Modal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Administrator' : 'Invite Administrator'}
+        footer={
+          <div className="flex gap-4 w-full">
+            <button 
+              type="button" 
+              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit(onSubmit)}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Save Changes' : 'Send Invite')}
+            </button>
+          </div>
+        }
+      >
+        <form id="user-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+          <FormField label="Full Name" error={errors.name} required>
+            <Input {...register('name')} placeholder="e.g. Jane Doe" error={!!errors.name} />
+          </FormField>
+          
+          <FormField label="Email Address" error={errors.email} required>
+            <Input {...register('email')} type="email" placeholder="e.g. jane@iqfone.com" error={!!errors.email} />
+          </FormField>
+          
+          <FormField label="Access Role" description="Determine what this user can view and edit." error={errors.role} required>
+            <Select 
+              {...register('role')} 
+              options={[
+                { label: 'Super Admin - Full Access', value: 'Super Admin' },
+                { label: 'Admin - Standard Configuration', value: 'Admin' },
+                { label: 'Support - Read Only / Limited', value: 'Support' },
+              ]}
+              error={!!errors.role} 
+            />
+          </FormField>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -185,4 +185,18 @@ describe('route validation checks', () => {
     expect(response.status).toBe(400)
     expect(body.error).toBe('Domain is required')
   })
+
+  it('rejects tenant-scoped ivr lookup without tenant query context', async () => {
+    const response = await app.request('/ivr/1')
+    const body = await json(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('accountId query parameter is required')
+  })
+
+  it('rejects tenant-scoped routing list without tenant query context', async () => {
+    const response = await app.request('/routing-policies')
+    const body = await json(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('accountId query parameter is required')
+  })
 })

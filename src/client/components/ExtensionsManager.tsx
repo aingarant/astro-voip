@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QueryProvider } from './providers/QueryProvider';
+import { Modal } from './ui/Modal';
+import { FormField, Input } from './ui/Form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Toggle } from './ui/Toggle';
 
 type Extension = {
   id: number;
@@ -10,6 +16,14 @@ type Extension = {
   voicemailEnabled: boolean;
   status: 'Online' | 'Offline';
 };
+
+const extensionSchema = z.object({
+  extension: z.string().min(1, "Extension number is required"),
+  name: z.string().min(2, "Display name is required"),
+  accountId: z.coerce.number().min(1, "Account ID is required"),
+  voicemailEnabled: z.boolean(),
+});
+type ExtensionFormData = z.infer<typeof extensionSchema>;
 
 const MOCK_EXTENSIONS: Extension[] = [
   { id: 1, extension: '1001', name: 'Alice Smith', accountId: 101, voicemailEnabled: true, status: 'Online' },
@@ -40,7 +54,14 @@ export function ExtensionsManager() {
 function ExtensionsManagerInner() {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ extension: '', name: '', accountId: '', voicemailEnabled: true });
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ExtensionFormData>({
+    resolver: zodResolver(extensionSchema),
+    defaultValues: { extension: '', name: '', accountId: undefined, voicemailEnabled: true }
+  });
+
+  const isVoicemailEnabled = watch('voicemailEnabled');
 
   const { data, isLoading } = useQuery<{ extensions: Extension[] }>({
     queryKey: ['extensions'],
@@ -56,14 +77,11 @@ function ExtensionsManagerInner() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (newExt: typeof formData) => {
+    mutationFn: async (newExt: ExtensionFormData) => {
       const res = await fetch('http://127.0.0.1:8787/extensions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newExt,
-          accountId: parseInt(newExt.accountId),
-        }),
+        body: JSON.stringify(newExt),
       });
       if (!res.ok) throw new Error('Failed to create extension');
       return res.json();
@@ -71,13 +89,51 @@ function ExtensionsManagerInner() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['extensions'] });
       setIsModalOpen(false);
-      setFormData({ extension: '', name: '', accountId: '', voicemailEnabled: true });
+      reset();
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate(formData);
+  const updateMutation = useMutation({
+    mutationFn: async (ext: ExtensionFormData & { id: number }) => {
+      const res = await fetch(`http://127.0.0.1:8787/extensions/${ext.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ext),
+      });
+      if (!res.ok) throw new Error('Failed to update extension');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['extensions'] });
+      setIsModalOpen(false);
+      setEditingId(null);
+      reset();
+    },
+  });
+
+  const onSubmit = (formData: ExtensionFormData) => {
+    if (editingId) {
+      updateMutation.mutate({ ...formData, id: editingId });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const openEdit = (ext: Extension) => {
+    reset({
+      extension: ext.extension,
+      name: ext.name,
+      accountId: ext.accountId,
+      voicemailEnabled: ext.voicemailEnabled
+    });
+    setEditingId(ext.id);
+    setIsModalOpen(true);
+  };
+
+  const openCreate = () => {
+    reset({ extension: '', name: '', accountId: undefined, voicemailEnabled: true });
+    setEditingId(null);
+    setIsModalOpen(true);
   };
 
   return (
@@ -89,7 +145,7 @@ function ExtensionsManagerInner() {
         </div>
         <button 
           className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreate}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
           Create Extension
@@ -161,7 +217,10 @@ function ExtensionsManagerInner() {
                       </div>
                     </td>
                     <td className="px-8 py-6 text-right">
-                      <button className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all">
+                      <button 
+                        className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all"
+                        onClick={() => openEdit(ext)}
+                      >
                         Configure
                       </button>
                     </td>
@@ -173,96 +232,55 @@ function ExtensionsManagerInner() {
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in duration-300">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
-          <div className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-[2.5rem] overflow-hidden border border-slate-100 dark:border-slate-700">
-            <div className="px-10 py-8 border-b border-slate-50 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">New Extension</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Initialize a new SIP endpoint on the cluster.</p>
-              </div>
-              <button className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:text-slate-400 transition-colors" onClick={() => setIsModalOpen(false)}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="p-10 space-y-8">
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Extension Number</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 1001"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-bold font-mono"
-                      value={formData.extension}
-                      onChange={(e) => setFormData({ ...formData, extension: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Linked Account ID</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="System ID"
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium font-mono"
-                      value={formData.accountId}
-                      onChange={(e) => setFormData({ ...formData, accountId: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Display Name / Assignee</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Alice Smith"
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-200 transition-all font-medium"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                  <div>
-                    <span className="block text-[10px] font-bold text-slate-900 dark:text-white uppercase tracking-widest">Voicemail Module</span>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Enable mailbox for this extension</span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="sr-only peer"
-                      checked={formData.voicemailEnabled}
-                      onChange={(e) => setFormData({ ...formData, voicemailEnabled: e.target.checked })}
-                    />
-                    <div className="w-11 h-6 bg-slate-200 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white dark:bg-slate-800 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-              </div>
-              
-              <div className="pt-4 flex gap-4">
-                <button 
-                  type="button" 
-                  className="flex-1 py-4 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-600 dark:bg-slate-700 transition-all"
-                  onClick={() => setIsModalOpen(false)}
-                >
-                  Discard
-                </button>
-                <button 
-                  type="submit" 
-                  className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
-                  disabled={createMutation.isPending}
-                >
-                  {createMutation.isPending ? 'Processing...' : 'Initialize Extension'}
-                </button>
-              </div>
-            </form>
+      <Modal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Extension' : 'New Extension'}
+        footer={
+          <div className="flex gap-4 w-full">
+            <button 
+              type="button" 
+              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit(onSubmit)}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Save Changes' : 'Initialize Extension')}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <form id="extension-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+          <div className="grid grid-cols-2 gap-6">
+            <FormField label="Extension Number" error={errors.extension} required>
+              <Input {...register('extension')} placeholder="e.g. 1001" className="font-mono" error={!!errors.extension} />
+            </FormField>
+            <FormField label="Linked Account ID" error={errors.accountId} required>
+              <Input type="number" {...register('accountId')} placeholder="System ID" className="font-mono" error={!!errors.accountId} />
+            </FormField>
+          </div>
+
+          <FormField label="Display Name / Assignee" error={errors.name} required>
+            <Input {...register('name')} placeholder="e.g. Alice Smith" error={!!errors.name} />
+          </FormField>
+
+          <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+            <div>
+              <span className="block text-[10px] font-bold text-slate-900 dark:text-white uppercase tracking-widest">Voicemail Module</span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Enable mailbox for this extension</span>
+            </div>
+            <Toggle 
+              checked={isVoicemailEnabled}
+              onChange={(v) => setValue('voicemailEnabled', v)}
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

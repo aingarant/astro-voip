@@ -7,6 +7,8 @@ import { db } from '../db'
 import { accounts, ivrProfiles } from '../db/schema'
 import { badRequest, conflict, internalError, normalizePagination, notFound, parseIdParam } from '../utils/http'
 import { validateFlag01, validateRequiredString } from '../utils/validators'
+import { getTenantScopeFromQuery } from '../utils/tenant'
+import { writeTenantAuditLog } from '../utils/audit'
 
 const ivrRoute = new Hono()
 
@@ -17,6 +19,7 @@ const ivrBodySchema = z.object({
   description: z.string().optional(),
   defaultLanguage: z.string().optional(),
   timezone: z.string().optional(),
+  activeVersionId: z.number().nullable().optional(),
   isActive: z.union([z.literal(0), z.literal(1)]).optional(),
 })
 
@@ -30,6 +33,7 @@ const ivrResponseSchema = z.object({
   domain: z.string(),
   name: z.string(),
   description: z.string(),
+  activeVersionId: z.number().nullable(),
   defaultLanguage: z.string(),
   timezone: z.string(),
   isActive: z.number(),
@@ -63,8 +67,15 @@ ivrRoute.get(
   }),
   async (c) => {
     try {
+      const tenant = getTenantScopeFromQuery(c)
+      if ('error' in tenant) return badRequest(c, tenant.error)
       const { limit, offset } = normalizePagination(c.req.query('limit'), c.req.query('offset'))
-      const rows = await db.select().from(ivrProfiles).limit(limit).offset(offset)
+      const rows = await db
+        .select()
+        .from(ivrProfiles)
+        .where(and(eq(ivrProfiles.accountId, tenant.accountId), eq(ivrProfiles.domain, tenant.domain)))
+        .limit(limit)
+        .offset(offset)
       return c.json({ ivrProfiles: rows, page: { limit, offset } })
     } catch (error: unknown) {
       console.error(error)
@@ -76,8 +87,14 @@ ivrRoute.get(
 ivrRoute.get('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const row = await db.select().from(ivrProfiles).where(eq(ivrProfiles.id, parsed.id)).limit(1)
+    const row = await db
+      .select()
+      .from(ivrProfiles)
+      .where(and(eq(ivrProfiles.id, parsed.id), eq(ivrProfiles.accountId, tenant.accountId), eq(ivrProfiles.domain, tenant.domain)))
+      .limit(1)
     if (!row[0]) return notFound(c, 'IVR profile not found')
     return c.json({ ivrProfile: row[0] })
   } catch (error: unknown) {
@@ -109,6 +126,7 @@ ivrRoute.post(
       domain,
       name,
       description = '',
+      activeVersionId = null,
       defaultLanguage = 'en-US',
       timezone = 'UTC',
       isActive = 1,
@@ -138,10 +156,19 @@ ivrRoute.post(
         domain,
         name,
         description,
+        activeVersionId,
         defaultLanguage,
         timezone,
         isActive,
       }).returning()
+      await writeTenantAuditLog(c, {
+        accountId,
+        domain,
+        entityType: 'ivr_profile',
+        entityId: created[0].id,
+        action: 'create',
+        afterPayload: created[0],
+      })
       return c.json({ ivrProfile: created[0] }, 201)
     } catch (error: unknown) {
       console.error(error)
@@ -160,6 +187,7 @@ ivrRoute.put('/:id', sValidator('json', ivrBodySchema, validationHook), async (c
     domain,
     name,
     description = '',
+    activeVersionId = null,
     defaultLanguage = 'en-US',
     timezone = 'UTC',
     isActive = 1,
@@ -172,6 +200,9 @@ ivrRoute.put('/:id', sValidator('json', ivrBodySchema, validationHook), async (c
   try {
     const existing = await db.select().from(ivrProfiles).where(eq(ivrProfiles.id, parsed.id)).limit(1)
     if (!existing[0]) return notFound(c, 'IVR profile not found')
+    if (existing[0].accountId !== accountId || existing[0].domain !== domain) {
+      return badRequest(c, 'accountId and domain must match the existing IVR profile tenant')
+    }
 
     const duplicate = await db
       .select()
@@ -187,10 +218,20 @@ ivrRoute.put('/:id', sValidator('json', ivrBodySchema, validationHook), async (c
       domain,
       name,
       description,
+      activeVersionId,
       defaultLanguage,
       timezone,
       isActive,
     }).where(eq(ivrProfiles.id, parsed.id)).returning()
+    await writeTenantAuditLog(c, {
+      accountId,
+      domain,
+      entityType: 'ivr_profile',
+      entityId: parsed.id,
+      action: 'update',
+      beforePayload: existing[0],
+      afterPayload: updated[0],
+    })
     return c.json({ ivrProfile: updated[0] })
   } catch (error: unknown) {
     console.error(error)
@@ -201,13 +242,35 @@ ivrRoute.put('/:id', sValidator('json', ivrBodySchema, validationHook), async (c
 ivrRoute.patch('/:id/status', sValidator('json', ivrStatusBodySchema, validationHook), async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   const { isActive } = c.req.valid('json')
   const statusValidation = validateFlag01(isActive, 'Is Active')
   if (!statusValidation.success) return badRequest(c, statusValidation.error)
 
   try {
-    const updated = await db.update(ivrProfiles).set({ isActive }).where(eq(ivrProfiles.id, parsed.id)).returning()
+    const existing = await db
+      .select()
+      .from(ivrProfiles)
+      .where(and(eq(ivrProfiles.id, parsed.id), eq(ivrProfiles.accountId, tenant.accountId), eq(ivrProfiles.domain, tenant.domain)))
+      .limit(1)
+    if (!existing[0]) return notFound(c, 'IVR profile not found')
+
+    const updated = await db
+      .update(ivrProfiles)
+      .set({ isActive })
+      .where(and(eq(ivrProfiles.id, parsed.id), eq(ivrProfiles.accountId, tenant.accountId), eq(ivrProfiles.domain, tenant.domain)))
+      .returning()
     if (!updated[0]) return notFound(c, 'IVR profile not found')
+    await writeTenantAuditLog(c, {
+      accountId: tenant.accountId,
+      domain: tenant.domain,
+      entityType: 'ivr_profile',
+      entityId: parsed.id,
+      action: 'status_update',
+      beforePayload: existing[0],
+      afterPayload: updated[0],
+    })
     return c.json({ ivrProfile: updated[0] })
   } catch (error: unknown) {
     console.error(error)
@@ -218,9 +281,29 @@ ivrRoute.patch('/:id/status', sValidator('json', ivrStatusBodySchema, validation
 ivrRoute.delete('/:id', async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
+  const tenant = getTenantScopeFromQuery(c)
+  if ('error' in tenant) return badRequest(c, tenant.error)
   try {
-    const deleted = await db.delete(ivrProfiles).where(eq(ivrProfiles.id, parsed.id)).returning()
+    const existing = await db
+      .select()
+      .from(ivrProfiles)
+      .where(and(eq(ivrProfiles.id, parsed.id), eq(ivrProfiles.accountId, tenant.accountId), eq(ivrProfiles.domain, tenant.domain)))
+      .limit(1)
+    if (!existing[0]) return notFound(c, 'IVR profile not found')
+
+    const deleted = await db
+      .delete(ivrProfiles)
+      .where(and(eq(ivrProfiles.id, parsed.id), eq(ivrProfiles.accountId, tenant.accountId), eq(ivrProfiles.domain, tenant.domain)))
+      .returning()
     if (!deleted[0]) return notFound(c, 'IVR profile not found')
+    await writeTenantAuditLog(c, {
+      accountId: tenant.accountId,
+      domain: tenant.domain,
+      entityType: 'ivr_profile',
+      entityId: parsed.id,
+      action: 'delete',
+      beforePayload: existing[0],
+    })
     return c.json({ ivrProfile: deleted[0] })
   } catch (error: unknown) {
     console.error(error)

@@ -1,10 +1,7 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { DestinationsManager } from '../components/DestinationsManager';
 ---
 <AdminLayout title="Destinations">
-  <div class="card bg-base-100 shadow-sm border border-base-300">
-    <div class="card-body">
-      <p class="text-base-content/70">Destinations management coming soon.</p>
-    </div>
-  </div>
+  <DestinationsManager client:load />
 </AdminLayout>

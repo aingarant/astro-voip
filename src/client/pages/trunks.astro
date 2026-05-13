@@ -1,10 +1,7 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { TrunksManager } from '../components/TrunksManager';
 ---
 <AdminLayout title="Trunks">
-  <div class="card bg-base-100 shadow-sm border border-base-300">
-    <div class="card-body">
-      <p class="text-base-content/70">Trunks management coming soon.</p>
-    </div>
-  </div>
+  <TrunksManager client:load />
 </AdminLayout>

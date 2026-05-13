@@ -1,10 +1,7 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { VoicemailManager } from '../components/VoicemailManager';
 ---
 <AdminLayout title="Voicemail">
-  <div class="card bg-base-100 shadow-sm border border-base-300">
-    <div class="card-body">
-      <p class="text-base-content/70">Voicemail management coming soon.</p>
-    </div>
-  </div>
+  <VoicemailManager client:load />
 </AdminLayout>

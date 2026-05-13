@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QueryProvider } from './providers/QueryProvider';
 
 type PhoneNumber = {
   id: number;
@@ -14,26 +16,61 @@ const MOCK_NUMBERS: PhoneNumber[] = [
   { id: 2, number: '+1 (800) 555-0199', provider: 'Bandwidth', accountId: 101, status: 'Active', type: 'Toll-Free' },
   { id: 3, number: '+1 (647) 555-0200', provider: 'Twilio', accountId: 102, status: 'Porting', type: 'Local' },
   { id: 4, number: '+44 20 7123 4567', provider: 'Telnyx', accountId: 103, status: 'Inactive', type: 'International' },
+  { id: 5, number: '+1 (212) 555-0987', provider: 'Telnyx', accountId: 104, status: 'Active', type: 'Local' },
+  { id: 6, number: '+1 (888) 123-4567', provider: 'Twilio', accountId: 105, status: 'Active', type: 'Toll-Free' },
+  { id: 7, number: '+33 1 70 38 00 00', provider: 'Colt', accountId: 106, status: 'Active', type: 'International' },
+  { id: 8, number: '+1 (604) 555-1234', provider: 'Flowroute', accountId: 107, status: 'Porting', type: 'Local' },
 ];
 
 export function NumbersManager() {
+  return (
+    <QueryProvider>
+      <NumbersManagerInner />
+    </QueryProvider>
+  );
+}
+
+function NumbersManagerInner() {
+  const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [data, setData] = useState<PhoneNumber[]>(MOCK_NUMBERS);
   const [formData, setFormData] = useState({ number: '', provider: '', accountId: '', type: 'Local' });
+
+  const { data, isLoading } = useQuery<{ numbers: PhoneNumber[] }>({
+    queryKey: ['numbers'],
+    queryFn: async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8787/numbers');
+        if (!res.ok) throw new Error('API Unavailable');
+        return res.json();
+      } catch (e) {
+        return { numbers: MOCK_NUMBERS };
+      }
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (newNum: typeof formData) => {
+      const res = await fetch('http://127.0.0.1:8787/numbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newNum,
+          accountId: parseInt(newNum.accountId),
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to create number');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['numbers'] });
+      setIsModalOpen(false);
+      setFormData({ number: '', provider: '', accountId: '', type: 'Local' });
+    },
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const newNumber: PhoneNumber = {
-      id: data.length + 1,
-      number: formData.number,
-      provider: formData.provider,
-      accountId: parseInt(formData.accountId),
-      status: 'Active',
-      type: formData.type as 'Local' | 'Toll-Free' | 'International',
-    };
-    setData([...data, newNumber]);
-    setIsModalOpen(false);
-    setFormData({ number: '', provider: '', accountId: '', type: 'Local' });
+    createMutation.mutate(formData);
   };
 
   return (
@@ -66,43 +103,60 @@ export function NumbersManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {data.map((num) => (
-                <tr key={num.id} className="group hover:bg-slate-50/50 transition-colors">
-                  <td className="px-8 py-6">
-                    <div className="flex flex-col">
-                      <span className="text-base font-bold text-slate-900 tracking-tight">{num.number}</span>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">ID: #{num.id}</span>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-8 py-20 text-center">
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                      <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Loading Phone Numbers...</span>
                     </div>
-                  </td>
-                  <td className="px-8 py-6">
-                    <span className={`inline-flex px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${num.type === 'Toll-Free' ? 'bg-rose-50 text-rose-600' : num.type === 'Local' ? 'bg-slate-50 text-slate-600' : 'bg-sky-50 text-sky-600'}`}>
-                      {num.type}
-                    </span>
-                  </td>
-                  <td className="px-8 py-6">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-400">
-                        {num.provider.substring(0, 1).toUpperCase()}
-                      </div>
-                      <span className="text-sm font-bold text-slate-700">{num.provider}</span>
-                    </div>
-                  </td>
-                  <td className="px-8 py-6">
-                    <span className="text-xs font-bold text-slate-400 font-mono">#{num.accountId}</span>
-                  </td>
-                  <td className="px-8 py-6">
-                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${num.status === 'Active' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : num.status === 'Porting' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
-                      <div className={`w-1.5 h-1.5 rounded-full ${num.status === 'Active' ? 'bg-emerald-500 animate-pulse' : num.status === 'Porting' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
-                      {num.status}
-                    </div>
-                  </td>
-                  <td className="px-8 py-6 text-right">
-                    <button className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all">
-                      Configure
-                    </button>
                   </td>
                 </tr>
-              ))}
+              ) : data?.numbers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-8 py-20 text-center text-slate-300">
+                    <span className="text-sm font-bold uppercase tracking-widest">No Active Numbers Found</span>
+                  </td>
+                </tr>
+              ) : (
+                data?.numbers.map((num) => (
+                  <tr key={num.id} className="group hover:bg-slate-50/50 transition-colors">
+                    <td className="px-8 py-6">
+                      <div className="flex flex-col">
+                        <span className="text-base font-bold text-slate-900 tracking-tight">{num.number}</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">ID: #{num.id}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <span className={`inline-flex px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${num.type === 'Toll-Free' ? 'bg-rose-50 text-rose-600' : num.type === 'Local' ? 'bg-slate-50 text-slate-600' : 'bg-sky-50 text-sky-600'}`}>
+                        {num.type}
+                      </span>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-400">
+                          {num.provider.substring(0, 1).toUpperCase()}
+                        </div>
+                        <span className="text-sm font-bold text-slate-700">{num.provider}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <span className="text-xs font-bold text-slate-400 font-mono">#{num.accountId}</span>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${num.status === 'Active' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : num.status === 'Porting' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${num.status === 'Active' ? 'bg-emerald-500 animate-pulse' : num.status === 'Porting' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                        {num.status}
+                      </div>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <button className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all">
+                        Configure
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -185,9 +239,10 @@ export function NumbersManager() {
                 </button>
                 <button 
                   type="submit" 
-                  className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+                  className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50"
+                  disabled={createMutation.isPending}
                 >
-                  Provision Number
+                  {createMutation.isPending ? 'Processing...' : 'Provision Number'}
                 </button>
               </div>
             </form>

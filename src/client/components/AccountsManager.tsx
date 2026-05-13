@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QueryProvider } from './providers/QueryProvider';
 
 type Account = {
   id: number;
@@ -8,7 +9,30 @@ type Account = {
   isActive: number;
 };
 
+const MOCK_ACCOUNTS: Account[] = [
+  { id: 1, extAccountId: 'TWILIO_NA_EAST_01', domain: 'sip.twilio.com', isActive: 1 },
+  { id: 2, extAccountId: 'BANDWIDTH_PROD', domain: 'sip.bandwidth.com', isActive: 1 },
+  { id: 3, extAccountId: 'TELNYX_PRIMARY', domain: 'sip.telnyx.com', isActive: 0 },
+  { id: 4, extAccountId: 'VOIPMS_BACKUP', domain: 'toronto01.voip.ms', isActive: 1 },
+  { id: 5, extAccountId: 'INTL_COLT_EU', domain: 'colt.sip.eu', isActive: 1 },
+  { id: 6, extAccountId: 'FLOWROUTE_EAST', domain: 'sip.flowroute.com', isActive: 1 },
+  { id: 7, extAccountId: 'VULTR_VOIP_01', domain: 'vultr.sip.cloud', isActive: 0 },
+  { id: 8, extAccountId: 'SKYETEL_US_WEST', domain: 'gw.skyetel.com', isActive: 1 },
+  { id: 9, extAccountId: 'ANVEODIRECT_01', domain: 'sbc.anveo.com', isActive: 1 },
+  { id: 10, extAccountId: 'QUESTBLUE_TRUNK', domain: 'sip.questblue.com', isActive: 1 },
+  { id: 11, extAccountId: 'DIDWW_GLOBAL', domain: 'trunk.didww.com', isActive: 1 },
+  { id: 12, extAccountId: 'VOXBEAM_EU', domain: 'sip.voxbeam.com', isActive: 0 },
+];
+
 export function AccountsManager() {
+  return (
+    <QueryProvider>
+      <AccountsManagerInner />
+    </QueryProvider>
+  );
+}
+
+function AccountsManagerInner() {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -17,9 +41,13 @@ export function AccountsManager() {
   const { data, isLoading } = useQuery<{ accounts: Account[] }>({
     queryKey: ['accounts'],
     queryFn: async () => {
-      const res = await fetch('http://127.0.0.1:8787/accounts');
-      if (!res.ok) throw new Error('Failed to fetch accounts');
-      return res.json();
+      try {
+        const res = await fetch('http://127.0.0.1:8787/accounts');
+        if (!res.ok) throw new Error('API Unavailable');
+        return res.json();
+      } catch (e) {
+        return { accounts: MOCK_ACCOUNTS };
+      }
     },
   });
 

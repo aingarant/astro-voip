@@ -2,12 +2,81 @@ import { Hono } from 'hono'
 import { db } from '../db'
 import { accounts, subscriber as subscriberDb } from '../db/schema'
 import { eq, type InferInsertModel, type InferSelectModel } from 'drizzle-orm'
+import { describeRoute, resolver } from 'hono-openapi'
+import { sValidator } from '@hono/standard-validator'
+import { z } from 'zod'
 import { badRequest, internalError, normalizePagination, notFound, parseIdParam } from '../utils/http'
 import { buildSubscriberDigests, sanitizeSubscriber } from '../utils/subscriber'
 import { validateRequiredString } from '../utils/validators'
 const subscribersRoute = new Hono()
 
-subscribersRoute.get('/', async (c) => {
+const subscriberCreateBodySchema = z.object({
+  accountId: z.number(),
+  extensionId: z.string().min(1, 'Extension ID is required'),
+  defaultDid: z.string().min(1, 'Default DID is required'),
+  username: z.string().min(1, 'Username is required'),
+  domain: z.string().min(1, 'Domain is required'),
+  password: z.string().min(1, 'Password is required'),
+})
+
+const subscriberUpdateBodySchema = z.object({
+  accountId: z.number(),
+  extensionId: z.string().min(1, 'Extension ID is required'),
+  defaultDid: z.string().min(1, 'Default DID is required'),
+  username: z.string().min(1, 'Username is required'),
+  domain: z.string().min(1, 'Domain is required'),
+  password: z.string().optional(),
+})
+
+const subscriberPasswordPatchSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+})
+
+const subscriberResponseSchema = z.object({
+  id: z.number(),
+  accountId: z.number(),
+  extensionId: z.string().nullable(),
+  defaultDid: z.string().nullable(),
+  username: z.string(),
+  domain: z.string(),
+})
+
+const errorSchema = z.object({ error: z.string() })
+const validationHook = (
+  result: { success: boolean; error?: readonly { path?: readonly unknown[]; message: string }[] },
+  c: Parameters<typeof badRequest>[0],
+) => {
+  if (!result.success) {
+    const firstIssue = result.error?.[0]
+    if (!firstIssue) return badRequest(c, 'Invalid request')
+    if (firstIssue.path?.[0] === 'password') return badRequest(c, 'Password is required')
+    return badRequest(c, firstIssue.message)
+  }
+}
+
+subscribersRoute.get(
+  '/',
+  describeRoute({
+    tags: ['Subscribers'],
+    summary: 'List subscribers',
+    responses: {
+      200: {
+        description: 'Paginated list of subscribers',
+        content: {
+          'application/json': {
+            schema: resolver(z.object({
+              subscribers: z.array(subscriberResponseSchema),
+              page: z.object({
+                limit: z.number(),
+                offset: z.number(),
+              }),
+            })),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
   try {
     const { limit, offset } = normalizePagination(c.req.query('limit'), c.req.query('offset'))
     const subscribersData = await db.select().from(subscriberDb).limit(limit).offset(offset)
@@ -18,7 +87,29 @@ subscribersRoute.get('/', async (c) => {
   }
 })
 
-subscribersRoute.get('/:id', async (c) => {
+subscribersRoute.get(
+  '/:id',
+  describeRoute({
+    tags: ['Subscribers'],
+    summary: 'Get subscriber by ID',
+    responses: {
+      200: {
+        description: 'Subscriber details',
+        content: {
+          'application/json': { schema: resolver(z.object({ subscriber: subscriberResponseSchema })) },
+        },
+      },
+      400: {
+        description: 'Invalid request',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+      404: {
+        description: 'Subscriber not found',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+    },
+  }),
+  async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
 
@@ -33,8 +124,27 @@ subscribersRoute.get('/:id', async (c) => {
 })
 
 // Create New Subscriber
-subscribersRoute.post('/', async (c) => {
-  const body = await c.req.json()
+subscribersRoute.post(
+  '/',
+  describeRoute({
+    tags: ['Subscribers'],
+    summary: 'Create subscriber',
+    responses: {
+      201: {
+        description: 'Created subscriber',
+        content: {
+          'application/json': { schema: resolver(z.object({ subscriber: subscriberResponseSchema })) },
+        },
+      },
+      400: {
+        description: 'Invalid request',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+    },
+  }),
+  sValidator('json', subscriberCreateBodySchema, validationHook),
+  async (c) => {
+  const body = c.req.valid('json')
 
   const { accountId, extensionId, defaultDid, username, domain, password } = body
 
@@ -75,11 +185,34 @@ subscribersRoute.post('/', async (c) => {
   }
 })
 
-subscribersRoute.put('/:id', async (c) => {
+subscribersRoute.put(
+  '/:id',
+  describeRoute({
+    tags: ['Subscribers'],
+    summary: 'Update subscriber',
+    responses: {
+      200: {
+        description: 'Updated subscriber',
+        content: {
+          'application/json': { schema: resolver(z.object({ subscriber: subscriberResponseSchema })) },
+        },
+      },
+      400: {
+        description: 'Invalid request',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+      404: {
+        description: 'Subscriber not found',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+    },
+  }),
+  sValidator('json', subscriberUpdateBodySchema, validationHook),
+  async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
 
-  const body = await c.req.json()
+  const body = c.req.valid('json')
   const { accountId, extensionId, defaultDid, username, domain, password } = body
 
   if (typeof accountId !== 'number' || Number.isNaN(accountId)) return badRequest(c, 'Account ID is required')
@@ -120,11 +253,34 @@ subscribersRoute.put('/:id', async (c) => {
   }
 })
 
-subscribersRoute.patch('/:id/password', async (c) => {
+subscribersRoute.patch(
+  '/:id/password',
+  describeRoute({
+    tags: ['Subscribers'],
+    summary: 'Rotate subscriber password',
+    responses: {
+      200: {
+        description: 'Updated subscriber credentials',
+        content: {
+          'application/json': { schema: resolver(z.object({ subscriber: subscriberResponseSchema })) },
+        },
+      },
+      400: {
+        description: 'Invalid request',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+      404: {
+        description: 'Subscriber not found',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+    },
+  }),
+  sValidator('json', subscriberPasswordPatchSchema, validationHook),
+  async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
 
-  const body = await c.req.json()
+  const body = c.req.valid('json')
   const { password } = body
   const passwordValidation = validateRequiredString(password, 'Password')
   if (!passwordValidation.success) return badRequest(c, passwordValidation.error)
@@ -148,7 +304,29 @@ subscribersRoute.patch('/:id/password', async (c) => {
   }
 })
 
-subscribersRoute.delete('/:id', async (c) => {
+subscribersRoute.delete(
+  '/:id',
+  describeRoute({
+    tags: ['Subscribers'],
+    summary: 'Delete subscriber',
+    responses: {
+      200: {
+        description: 'Deleted subscriber',
+        content: {
+          'application/json': { schema: resolver(z.object({ subscriber: subscriberResponseSchema })) },
+        },
+      },
+      400: {
+        description: 'Invalid request',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+      404: {
+        description: 'Subscriber not found',
+        content: { 'application/json': { schema: resolver(errorSchema) } },
+      },
+    },
+  }),
+  async (c) => {
   const parsed = parseIdParam(c.req.param('id'))
   if ('error' in parsed) return badRequest(c, parsed.error)
 

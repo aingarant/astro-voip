@@ -459,3 +459,465 @@ export const missedCalls = pgTable("missed_calls", {
 	index("missed_calls_callid_idx").using("btree", table.callid.asc().nullsLast().op("text_ops")),
 ]);
 
+export const ivrProfiles = pgTable("ivr_profiles", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	description: varchar({ length: 255 }).default('').notNull(),
+	defaultLanguage: varchar("default_language", { length: 16 }).default('en-US').notNull(),
+	timezone: varchar({ length: 64 }).default('UTC').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_profiles_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_profiles_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const ivrPrompts = pgTable("ivr_prompts", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	ivrProfileId: integer("ivr_profile_id").notNull(),
+	promptKey: varchar("prompt_key", { length: 128 }).default('').notNull(),
+	promptType: varchar("prompt_type", { length: 16 }).default('tts').notNull(),
+	language: varchar({ length: 16 }).default('en-US').notNull(),
+	voice: varchar({ length: 64 }).default('').notNull(),
+	textBody: text("text_body"),
+	mediaUri: varchar("media_uri", { length: 255 }).default('').notNull(),
+	checksum: varchar({ length: 64 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_prompts_account_profile_key_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.promptKey.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_prompts_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.ivrProfileId],
+		foreignColumns: [ivrProfiles.id],
+		name: "ivr_prompts_ivr_profile_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const ivrVersions = pgTable("ivr_versions", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	ivrProfileId: integer("ivr_profile_id").notNull(),
+	version: integer().default(1).notNull(),
+	status: varchar({ length: 16 }).default('draft').notNull(),
+	definitionHash: varchar("definition_hash", { length: 64 }).default('').notNull(),
+	notes: text(),
+	isActive: integer("is_active").default(0).notNull(),
+	publishedAt: timestamp("published_at", { mode: 'string' }).default(sql`NULL`),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_versions_account_profile_version_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.version.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_versions_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.ivrProfileId],
+		foreignColumns: [ivrProfiles.id],
+		name: "ivr_versions_ivr_profile_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const ivrMenus = pgTable("ivr_menus", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	ivrProfileId: integer("ivr_profile_id").notNull(),
+	ivrVersionId: integer("ivr_version_id"),
+	name: varchar({ length: 128 }).default('').notNull(),
+	isRoot: integer("is_root").default(0).notNull(),
+	maxRetries: integer("max_retries").default(3).notNull(),
+	timeoutMs: integer("timeout_ms").default(5000).notNull(),
+	timeoutPromptId: integer("timeout_prompt_id"),
+	invalidPromptId: integer("invalid_prompt_id"),
+	fallbackActionType: varchar("fallback_action_type", { length: 32 }).default('hangup').notNull(),
+	fallbackActionTarget: varchar("fallback_action_target", { length: 255 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_menus_account_profile_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.name.asc().nullsLast().op("text_ops")),
+	index("ivr_menus_profile_root_idx").using("btree", table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.isRoot.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_menus_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.ivrProfileId],
+		foreignColumns: [ivrProfiles.id],
+		name: "ivr_menus_ivr_profile_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.ivrVersionId],
+		foreignColumns: [ivrVersions.id],
+		name: "ivr_menus_ivr_version_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.timeoutPromptId],
+		foreignColumns: [ivrPrompts.id],
+		name: "ivr_menus_timeout_prompt_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.invalidPromptId],
+		foreignColumns: [ivrPrompts.id],
+		name: "ivr_menus_invalid_prompt_id_fkey"
+	}).onDelete("set null"),
+]);
+
+export const ivrMenuOptions = pgTable("ivr_menu_options", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	ivrMenuId: integer("ivr_menu_id").notNull(),
+	inputType: varchar("input_type", { length: 16 }).default('dtmf').notNull(),
+	digit: varchar({ length: 8 }).default('').notNull(),
+	speechPattern: varchar("speech_pattern", { length: 128 }).default('').notNull(),
+	actionType: varchar("action_type", { length: 32 }).default('hangup').notNull(),
+	actionTarget: varchar("action_target", { length: 255 }).default('').notNull(),
+	priority: integer().default(0).notNull(),
+	isDefault: integer("is_default").default(0).notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_menu_options_menu_digit_idx").using("btree", table.ivrMenuId.asc().nullsLast().op("int4_ops"), table.digit.asc().nullsLast().op("text_ops")),
+	index("ivr_menu_options_menu_priority_idx").using("btree", table.ivrMenuId.asc().nullsLast().op("int4_ops"), table.priority.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_menu_options_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.ivrMenuId],
+		foreignColumns: [ivrMenus.id],
+		name: "ivr_menu_options_ivr_menu_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const queueHandoffs = pgTable("queue_handoffs", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	queueId: varchar("queue_id", { length: 64 }).default('').notNull(),
+	strategy: varchar({ length: 32 }).default('ring-all').notNull(),
+	priority: integer().default(0).notNull(),
+	skillTag: varchar("skill_tag", { length: 64 }).default('').notNull(),
+	maxWaitSeconds: integer("max_wait_seconds").default(60).notNull(),
+	overflowActionType: varchar("overflow_action_type", { length: 32 }).default('voicemail').notNull(),
+	overflowActionTarget: varchar("overflow_action_target", { length: 255 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("queue_handoffs_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "queue_handoffs_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const ivrFlows = pgTable("ivr_flows", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	ivrProfileId: integer("ivr_profile_id").notNull(),
+	fromMenuId: integer("from_menu_id").notNull(),
+	optionId: integer("option_id"),
+	queueHandoffId: integer("queue_handoff_id"),
+	conditionType: varchar("condition_type", { length: 32 }).default('always').notNull(),
+	actionType: varchar("action_type", { length: 32 }).default('hangup').notNull(),
+	actionTarget: varchar("action_target", { length: 255 }).default('').notNull(),
+	failActionType: varchar("fail_action_type", { length: 32 }).default('hangup').notNull(),
+	failActionTarget: varchar("fail_action_target", { length: 255 }).default('').notNull(),
+	priority: integer().default(0).notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_flows_profile_menu_priority_idx").using("btree", table.ivrProfileId.asc().nullsLast().op("int4_ops"), table.fromMenuId.asc().nullsLast().op("int4_ops"), table.priority.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_flows_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.ivrProfileId],
+		foreignColumns: [ivrProfiles.id],
+		name: "ivr_flows_ivr_profile_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.fromMenuId],
+		foreignColumns: [ivrMenus.id],
+		name: "ivr_flows_from_menu_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.optionId],
+		foreignColumns: [ivrMenuOptions.id],
+		name: "ivr_flows_option_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.queueHandoffId],
+		foreignColumns: [queueHandoffs.id],
+		name: "ivr_flows_queue_handoff_id_fkey"
+	}).onDelete("set null"),
+]);
+
+export const timeConditions = pgTable("time_conditions", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	timezone: varchar({ length: 64 }).default('UTC').notNull(),
+	matchActionType: varchar("match_action_type", { length: 32 }).default('allow').notNull(),
+	noMatchActionType: varchar("no_match_action_type", { length: 32 }).default('deny').notNull(),
+	noMatchActionTarget: varchar("no_match_action_target", { length: 255 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("time_conditions_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "time_conditions_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const timeConditionRules = pgTable("time_condition_rules", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	timeConditionId: integer("time_condition_id").notNull(),
+	dayOfWeek: smallint("day_of_week"),
+	startTime: varchar("start_time", { length: 8 }).default(sql`NULL`),
+	endTime: varchar("end_time", { length: 8 }).default(sql`NULL`),
+	startDate: varchar("start_date", { length: 10 }).default(sql`NULL`),
+	endDate: varchar("end_date", { length: 10 }).default(sql`NULL`),
+	matchType: varchar("match_type", { length: 16 }).default('include').notNull(),
+	priority: integer().default(0).notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("time_condition_rules_condition_priority_idx").using("btree", table.timeConditionId.asc().nullsLast().op("int4_ops"), table.priority.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "time_condition_rules_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.timeConditionId],
+		foreignColumns: [timeConditions.id],
+		name: "time_condition_rules_time_condition_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const holidayCalendars = pgTable("holiday_calendars", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	timezone: varchar({ length: 64 }).default('UTC').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("holiday_calendars_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "holiday_calendars_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const holidayEntries = pgTable("holiday_entries", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	holidayCalendarId: integer("holiday_calendar_id").notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	startDate: varchar("start_date", { length: 10 }).default('').notNull(),
+	endDate: varchar("end_date", { length: 10 }).default('').notNull(),
+	isClosed: integer("is_closed").default(1).notNull(),
+	overrideActionType: varchar("override_action_type", { length: 32 }).default('ivr').notNull(),
+	overrideActionTarget: varchar("override_action_target", { length: 255 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("holiday_entries_calendar_start_end_idx").using("btree", table.holidayCalendarId.asc().nullsLast().op("int4_ops"), table.startDate.asc().nullsLast().op("text_ops"), table.endDate.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "holiday_entries_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.holidayCalendarId],
+		foreignColumns: [holidayCalendars.id],
+		name: "holiday_entries_holiday_calendar_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const routingPolicies = pgTable("routing_policies", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	maxAttempts: integer("max_attempts").default(3).notNull(),
+	retryDelayMs: integer("retry_delay_ms").default(250).notNull(),
+	sip4xxAction: varchar("sip_4xx_action", { length: 32 }).default('next-target').notNull(),
+	sip5xxAction: varchar("sip_5xx_action", { length: 32 }).default('next-target').notNull(),
+	sip6xxAction: varchar("sip_6xx_action", { length: 32 }).default('stop').notNull(),
+	failoverActionType: varchar("failover_action_type", { length: 32 }).default('voicemail').notNull(),
+	failoverActionTarget: varchar("failover_action_target", { length: 255 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("routing_policies_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "routing_policies_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const recordingPolicies = pgTable("recording_policies", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	scopeType: varchar("scope_type", { length: 32 }).default('tenant').notNull(),
+	scopeValue: varchar("scope_value", { length: 128 }).default('').notNull(),
+	recordInbound: integer("record_inbound").default(1).notNull(),
+	recordOutbound: integer("record_outbound").default(1).notNull(),
+	recordInternal: integer("record_internal").default(0).notNull(),
+	fileFormat: varchar("file_format", { length: 16 }).default('wav').notNull(),
+	maxDurationSeconds: integer("max_duration_seconds").default(0).notNull(),
+	retentionDays: integer("retention_days").default(30).notNull(),
+	pauseDigits: varchar("pause_digits", { length: 16 }).default('').notNull(),
+	resumeDigits: varchar("resume_digits", { length: 16 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("recording_policies_account_domain_scope_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.scopeType.asc().nullsLast().op("text_ops"), table.scopeValue.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "recording_policies_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const inboundRoutes = pgTable("inbound_routes", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	did: varchar({ length: 64 }).default('').notNull(),
+	priority: integer().default(0).notNull(),
+	timeConditionId: integer("time_condition_id"),
+	holidayCalendarId: integer("holiday_calendar_id"),
+	routingPolicyId: integer("routing_policy_id"),
+	recordingPolicyId: integer("recording_policy_id"),
+	targetType: varchar("target_type", { length: 32 }).default('ivr').notNull(),
+	targetValue: varchar("target_value", { length: 255 }).default('').notNull(),
+	fallbackTargetType: varchar("fallback_target_type", { length: 32 }).default('voicemail').notNull(),
+	fallbackTargetValue: varchar("fallback_target_value", { length: 255 }).default('').notNull(),
+	isEmergency: integer("is_emergency").default(0).notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("inbound_routes_account_domain_did_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.did.asc().nullsLast().op("text_ops")),
+	index("inbound_routes_priority_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.priority.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "inbound_routes_account_id_fkey"
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.timeConditionId],
+		foreignColumns: [timeConditions.id],
+		name: "inbound_routes_time_condition_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.holidayCalendarId],
+		foreignColumns: [holidayCalendars.id],
+		name: "inbound_routes_holiday_calendar_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.routingPolicyId],
+		foreignColumns: [routingPolicies.id],
+		name: "inbound_routes_routing_policy_id_fkey"
+	}).onDelete("set null"),
+	foreignKey({
+		columns: [table.recordingPolicyId],
+		foreignColumns: [recordingPolicies.id],
+		name: "inbound_routes_recording_policy_id_fkey"
+	}).onDelete("set null"),
+]);
+
+export const tenantAuditLog = pgTable("tenant_audit_log", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	entityType: varchar("entity_type", { length: 64 }).default('').notNull(),
+	entityId: integer("entity_id").default(0).notNull(),
+	action: varchar({ length: 32 }).default('').notNull(),
+	actor: varchar({ length: 128 }).default('').notNull(),
+	requestId: varchar("request_id", { length: 128 }).default('').notNull(),
+	beforePayload: text("before_payload"),
+	afterPayload: text("after_payload"),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("tenant_audit_log_account_entity_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.entityType.asc().nullsLast().op("text_ops"), table.entityId.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "tenant_audit_log_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+
+export const ivrTestCalls = pgTable("ivr_test_calls", {
+	id: serial().primaryKey().notNull(),
+	accountId: integer("account_id").default(0).notNull(),
+	domain: varchar({ length: 64 }).default('').notNull(),
+	name: varchar({ length: 128 }).default('').notNull(),
+	entryDid: varchar("entry_did", { length: 64 }).default('').notNull(),
+	testInput: varchar("test_input", { length: 255 }).default('').notNull(),
+	expectedTargetType: varchar("expected_target_type", { length: 32 }).default('').notNull(),
+	expectedTargetValue: varchar("expected_target_value", { length: 255 }).default('').notNull(),
+	lastRunAt: timestamp("last_run_at", { mode: 'string' }).default(sql`NULL`),
+	lastResult: varchar("last_result", { length: 32 }).default('').notNull(),
+	isActive: integer("is_active").default(1).notNull(),
+	createDate: timestamp("create_date", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).default('2000-01-01 00:00:01').notNull(),
+}, (table) => [
+	index("ivr_test_calls_account_domain_name_idx").using("btree", table.accountId.asc().nullsLast().op("int4_ops"), table.domain.asc().nullsLast().op("text_ops"), table.name.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.accountId],
+		foreignColumns: [accounts.id],
+		name: "ivr_test_calls_account_id_fkey"
+	}).onDelete("cascade"),
+]);
+

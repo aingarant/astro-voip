@@ -1,0 +1,7 @@
+---
+import AdminLayout from '../layouts/AdminLayout.astro';
+import { ServersManager } from '../components/ServersManager';
+---
+<AdminLayout title="Servers">
+  <ServersManager client:load />
+</AdminLayout>

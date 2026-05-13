@@ -1,0 +1,181 @@
+---
+import '../app.css';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+
+const mainMenuItems = [
+  { href: '/', label: 'Dashboard' },
+  { href: '/accounts', label: 'Accounts' },
+  { href: '/subscribers', label: 'Subscribers' },
+  { href: '/extensions', label: 'Extensions' },
+  { href: '/numbers', label: 'Numbers' },
+];
+
+const moreMenuItems = [
+  { href: '/destinations', label: 'Destinations' },
+  { href: '/servers', label: 'Servers' },
+  { href: '/trunks', label: 'Trunks' },
+  { href: '/users', label: 'Users' },
+  { href: '/voicemail', label: 'Voicemail' },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} | IQFone Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style is:global>
+      :root {
+        --primary: 99 102 241;
+        --secondary: 236 72 153;
+        --accent: 14 165 233;
+        --success: 34 197 94;
+        --warning: 245 158 11;
+        --error: 239 68 68;
+        --background: 248 250 252;
+        --card: 255 255 255;
+      }
+
+      body { 
+        font-family: 'Outfit', sans-serif; 
+        background-color: rgb(var(--background));
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+          radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.08) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(14, 165, 233, 0.08) 0px, transparent 50%),
+          radial-gradient(at 0% 100%, rgba(34, 197, 94, 0.08) 0px, transparent 50%),
+          radial-gradient(at 50% 50%, rgba(168, 85, 247, 0.04) 0px, transparent 50%);
+        background-attachment: fixed;
+      }
+
+      .glass-card {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+      }
+
+      @keyframes slideInUp {
+        from { transform: translateY(20px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+
+      .animate-slide-up {
+        animation: slideInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(0,0,0,0.1);
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(0,0,0,0.2);
+      }
+    </style>
+  </head>
+  <body class="min-h-screen p-4 md:p-10 lg:p-12 flex justify-center items-start text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
+    <div class="w-full max-w-[1536px] bg-white rounded-[2.5rem] border border-slate-200/60 overflow-hidden flex flex-col min-h-[90vh] transition-all duration-500">
+      
+      <!-- Top Navbar -->
+      <header class="flex items-center justify-between px-8 lg:px-12 py-8 border-b border-slate-100">
+        <!-- Logo -->
+        <div class="flex items-center gap-4 group cursor-pointer">
+          <div class="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200 group-hover:scale-110 transition-transform duration-300">
+            <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+          </div>
+          <div>
+            <span class="text-2xl font-bold tracking-tight text-slate-900 block leading-none">IQFone</span>
+            <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mt-1 block">Enterprise PBX</span>
+          </div>
+        </div>
+
+        <!-- Center Nav Pills -->
+        <nav class="hidden lg:flex items-center gap-1.5 p-1.5 bg-slate-50 rounded-full border border-slate-100">
+          {mainMenuItems.map(item => {
+            const isActive = Astro.url.pathname === item.href || Astro.url.pathname === item.href + '/';
+            return (
+              <a 
+                href={item.href} 
+                class={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 ${isActive ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200/50' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/50'}`}
+              >
+                {item.label}
+              </a>
+            );
+          })}
+          
+          <div class="relative group">
+            <button class="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:text-slate-900 hover:bg-slate-100/50 flex items-center gap-1 transition-all">
+              More <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+            </button>
+            <div class="absolute right-0 top-full pt-4 opacity-0 translate-y-4 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto transition-all duration-300 z-50">
+              <div class="p-3 shadow-[0_20px_50px_rgba(99,102,241,0.15)] bg-white/90 backdrop-blur-xl rounded-[2rem] w-64 border border-slate-100/50">
+                <div class="px-4 py-2 mb-2">
+                  <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Additional modules</span>
+                </div>
+                <ul class="space-y-1">
+                {moreMenuItems.map(item => {
+                  const isActive = Astro.url.pathname === item.href || Astro.url.pathname === item.href + '/';
+                  return (
+                    <li>
+                      <a href={item.href} class={`block px-4 py-2.5 rounded-2xl text-sm font-medium transition-colors ${isActive ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50 hover:text-indigo-600'}`}>
+                        {item.label}
+                      </a>
+                    </li>
+                  );
+                })}
+                </ul>
+                <div class="mt-3 pt-3 border-t border-slate-50 px-4 py-2">
+                  <div class="flex items-center gap-2 text-[10px] font-bold text-indigo-600 uppercase tracking-widest cursor-pointer hover:gap-3 transition-all">
+                    System Health <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <!-- Right Actions -->
+        <div class="flex items-center gap-3">
+          <button class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          </button>
+          <button class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all relative">
+            <span class="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+          </button>
+          <div class="h-8 w-[1px] bg-slate-100 mx-2"></div>
+          <div class="flex items-center gap-3 pl-2 cursor-pointer group">
+            <div class="text-right hidden sm:block">
+              <div class="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Admin User</div>
+              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Super Admin</div>
+            </div>
+            <div class="w-11 h-11 rounded-2xl ring-4 ring-slate-50 overflow-hidden group-hover:ring-indigo-50 transition-all">
+              <img src="https://ui-avatars.com/api/?name=Admin+User&background=6366f1&color=fff&bold=true" class="w-full h-full object-cover" />
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <main class="flex-1 overflow-y-auto px-8 lg:px-12 py-10 relative">
+        <slot />
+      </main>
+      
+    </div>
+  </body>
+</html>

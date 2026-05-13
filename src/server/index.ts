@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import accountsRoute from './routes/accounts'
 import subscribersRoute from './routes/subscribers'
+
 const app = new Hono()
 
 app.get('/', (c) => {

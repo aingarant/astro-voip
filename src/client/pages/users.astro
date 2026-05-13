@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { UsersManager } from '../components/UsersManager';
 ---
 <AdminLayout title="Users">
-  <UsersManager client:load />
+  <AppProviders client:only="react">
+    <UsersManager />
+  </AppProviders>
 </AdminLayout>

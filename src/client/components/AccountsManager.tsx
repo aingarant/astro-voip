@@ -1,260 +1,162 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { QueryProvider } from './providers/QueryProvider';
-import { Drawer } from './ui/Drawer';
-import { FormField, Input, Toggle } from './ui/Form';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import { useCreateAccount, useUpdateAccount, useAccounts } from '../api';
+import { AppProviders } from './providers/AppProviders';
+import { ErrorAlert, SpinnerBlock } from './ui/AsyncState';
+import { DaisyModal } from './ui/DaisyModal';
+import { useToast } from './ui/Toast';
 
-type Account = {
-  id: number;
-  extAccountId: string;
-  domain: string;
-  isActive: number;
-};
-
-const accountSchema = z.object({
-  extAccountId: z.string().min(3, "Identifier must be at least 3 characters").max(50),
-  domain: z.string().min(5, "Valid domain is required"),
-  isActive: z.boolean(),
-});
-type AccountFormData = z.infer<typeof accountSchema>;
-
-const MOCK_ACCOUNTS: Account[] = [
-  { id: 1, extAccountId: 'TWILIO_NA_EAST_01', domain: 'sip.twilio.com', isActive: 1 },
-  { id: 2, extAccountId: 'BANDWIDTH_PROD', domain: 'sip.bandwidth.com', isActive: 1 },
-  { id: 3, extAccountId: 'TELNYX_PRIMARY', domain: 'sip.telnyx.com', isActive: 0 },
-  { id: 4, extAccountId: 'VOIPMS_BACKUP', domain: 'toronto01.voip.ms', isActive: 1 },
-  { id: 5, extAccountId: 'INTL_COLT_EU', domain: 'colt.sip.eu', isActive: 1 },
-  { id: 6, extAccountId: 'FLOWROUTE_EAST', domain: 'sip.flowroute.com', isActive: 1 },
-  { id: 7, extAccountId: 'VULTR_VOIP_01', domain: 'vultr.sip.cloud', isActive: 0 },
-  { id: 8, extAccountId: 'SKYETEL_US_WEST', domain: 'gw.skyetel.com', isActive: 1 },
-  { id: 9, extAccountId: 'ANVEODIRECT_01', domain: 'sbc.anveo.com', isActive: 1 },
-  { id: 10, extAccountId: 'QUESTBLUE_TRUNK', domain: 'sip.questblue.com', isActive: 1 },
-  { id: 11, extAccountId: 'DIDWW_GLOBAL', domain: 'trunk.didww.com', isActive: 1 },
-  { id: 12, extAccountId: 'VOXBEAM_EU', domain: 'sip.voxbeam.com', isActive: 0 },
-];
+type Account = { id: number; extAccountId: string; domain: string; isActive: number };
 
 export function AccountsManager() {
   return (
-    <QueryProvider>
+    <AppProviders>
       <AccountsManagerInner />
-    </QueryProvider>
+    </AppProviders>
   );
 }
 
 function AccountsManagerInner() {
-  const queryClient = useQueryClient();
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const { data, isLoading, isError, error, refetch } = useAccounts();
+  const createMutation = useCreateAccount<{ extAccountId: string; domain: string; isActive: number }>();
+  const updateMutation = useUpdateAccount<{ id: number; extAccountId: string; domain: string; isActive: number }>();
+  const { showToast } = useToast();
+  const [form, setForm] = useState({ extAccountId: '', domain: '', isActive: 1 });
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [open, setOpen] = useState(false);
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<AccountFormData>({
-    resolver: zodResolver(accountSchema),
-    defaultValues: { extAccountId: '', domain: '', isActive: true }
-  });
+  const accounts = data?.accounts ?? [];
+  const pending = createMutation.isPending || updateMutation.isPending;
 
-  const { data, isLoading } = useQuery<{ accounts: Account[] }>({
-    queryKey: ['accounts'],
-    queryFn: async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:8787/accounts');
-        if (!res.ok) throw new Error('API Unavailable');
-        return res.json();
-      } catch (e) {
-        return { accounts: MOCK_ACCOUNTS };
+  const submit = async () => {
+    try {
+      if (editingId) {
+        await updateMutation.mutateAsync({ id: editingId, ...form });
+        showToast('Account updated', 'success');
+      } else {
+        await createMutation.mutateAsync(form);
+        showToast('Account created', 'success');
       }
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (newAccount: { extAccountId: string; domain: string; isActive: number }) => {
-      const res = await fetch('http://127.0.0.1:8787/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newAccount),
-      });
-      if (!res.ok) throw new Error('Failed to create account');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      setIsDrawerOpen(false);
-      reset();
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async (account: { id: number; extAccountId: string; domain: string; isActive: number }) => {
-      const res = await fetch(`http://127.0.0.1:8787/accounts/${account.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(account),
-      });
-      if (!res.ok) throw new Error('Failed to update account');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      setIsDrawerOpen(false);
+      setOpen(false);
       setEditingId(null);
-      reset();
-    },
-  });
-
-  const onSubmit = (formData: AccountFormData) => {
-    const payload = {
-      extAccountId: formData.extAccountId,
-      domain: formData.domain,
-      isActive: formData.isActive ? 1 : 0
-    };
-    if (editingId) {
-      updateMutation.mutate({ ...payload, id: editingId });
-    } else {
-      createMutation.mutate(payload);
+      setForm({ extAccountId: '', domain: '', isActive: 1 });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save account', 'error');
     }
   };
 
-  const openEdit = (acc: Account) => {
-    reset({
-      extAccountId: acc.extAccountId,
-      domain: acc.domain,
-      isActive: acc.isActive === 1
-    });
-    setEditingId(acc.id);
-    setIsDrawerOpen(true);
-  };
-
-  const openCreate = () => {
-    reset({ extAccountId: '', domain: '', isActive: true });
-    setEditingId(null);
-    setIsDrawerOpen(true);
-  };
-
   return (
-    <div className="space-y-10 animate-in fade-in duration-700">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Accounts Management</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Configure and monitor external SIP providers and domain routing.</p>
-        </div>
-        <button 
-          className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
-          onClick={openCreate}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Accounts</h2>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            setEditingId(null);
+            setForm({ extAccountId: '', domain: '', isActive: 1 });
+            setOpen(true);
+          }}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
-          Add New Account
+          Add Account
         </button>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-50 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50">
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">System ID</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Account Identifier</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Domain Path</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Current Status</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest text-right">Operations</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-8 py-20 text-center">
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                      <span className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Loading Infrastructure Data...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : data?.accounts.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-8 py-20 text-center">
-                    <div className="text-slate-300 flex flex-col items-center gap-4">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                      <span className="text-sm font-bold uppercase tracking-widest">No Active Accounts Found</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                data?.accounts.map((acc) => (
-                  <tr key={acc.id} className="group hover:bg-slate-50 dark:hover:bg-slate-700/50 dark:bg-transparent transition-colors">
-                    <td className="px-8 py-6">
-                      <span className="text-xs font-bold text-slate-400 dark:text-slate-500">#{acc.id}</span>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-[10px] font-bold">
-                          {acc.extAccountId.substring(0, 2).toUpperCase()}
-                        </div>
-                        <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">{acc.extAccountId}</span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <span className="text-sm font-medium text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-100 dark:border-slate-700">{acc.domain}</span>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${acc.isActive ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${acc.isActive ? 'bg-emerald-500' : 'bg-rose-500'} ${acc.isActive ? 'animate-pulse' : ''}`}></div>
-                        {acc.isActive ? 'Operational' : 'Disconnected'}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-right">
-                      <button 
-                        className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all"
-                        onClick={() => openEdit(acc)}
-                      >
-                        Configure
-                      </button>
-                    </td>
+      {isError ? <ErrorAlert message={(error as Error).message} onRetry={refetch} /> : null}
+
+      <div className="card bg-base-100 shadow">
+        <div className="card-body p-0">
+          {isLoading ? (
+            <SpinnerBlock label="Loading accounts..." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="table table-zebra">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Account</th>
+                    <th>Domain</th>
+                    <th>Status</th>
+                    <th />
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {accounts.map((account: Account) => (
+                    <tr key={account.id}>
+                      <td>{account.id}</td>
+                      <td>{account.extAccountId}</td>
+                      <td>{account.domain}</td>
+                      <td>
+                        <span className={`badge ${account.isActive ? 'badge-success' : 'badge-error'}`}>
+                          {account.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => {
+                            setEditingId(account.id);
+                            setForm({
+                              extAccountId: account.extAccountId,
+                              domain: account.domain,
+                              isActive: account.isActive ? 1 : 0,
+                            });
+                            setOpen(true);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
-      <Drawer 
-        isOpen={isDrawerOpen} 
-        onClose={() => setIsDrawerOpen(false)}
-        title={editingId ? 'Configure Account' : 'New SIP Account'}
-        description="Provide the necessary credentials for the account."
+      <DaisyModal
+        open={open}
+        title={editingId ? 'Edit Account' : 'Create Account'}
+        onClose={() => setOpen(false)}
         footer={
-          <div className="flex gap-4 w-full">
-            <button 
-              type="button" 
-              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
-              onClick={() => setIsDrawerOpen(false)}
-            >
+          <>
+            <button type="button" className="btn" onClick={() => setOpen(false)}>
               Cancel
             </button>
-            <button 
-              onClick={handleSubmit(onSubmit)}
-              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Apply Changes' : 'Create Account')}
+            <button type="button" className="btn btn-primary" onClick={submit} disabled={pending}>
+              {pending ? 'Saving...' : 'Save'}
             </button>
-          </div>
+          </>
         }
       >
-        <form id="account-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
-          <FormField label="Account Identifier" description="e.g. TWILIO_PROD_01" error={errors.extAccountId} required>
-            <Input {...register('extAccountId')} placeholder="Enter identifier..." error={!!errors.extAccountId} />
-          </FormField>
-          
-          <FormField label="SIP Domain / Gateway" description="e.g. sip.twilio.com" error={errors.domain} required>
-            <Input {...register('domain')} placeholder="Enter domain..." className="font-mono" error={!!errors.domain} />
-          </FormField>
-          
-          <FormField label="Operational Status" description="Toggle account connectivity">
-            <Toggle {...register('isActive')} />
-          </FormField>
-        </form>
-      </Drawer>
+        <label className="form-control w-full">
+          <span className="label-text">External Account ID</span>
+          <input
+            className="input input-bordered w-full"
+            value={form.extAccountId}
+            onChange={(event) => setForm((prev) => ({ ...prev, extAccountId: event.target.value }))}
+          />
+        </label>
+        <label className="form-control w-full">
+          <span className="label-text">Domain</span>
+          <input
+            className="input input-bordered w-full"
+            value={form.domain}
+            onChange={(event) => setForm((prev) => ({ ...prev, domain: event.target.value }))}
+          />
+        </label>
+        <label className="label cursor-pointer justify-start gap-3">
+          <input
+            type="checkbox"
+            className="toggle toggle-primary"
+            checked={Boolean(form.isActive)}
+            onChange={(event) => setForm((prev) => ({ ...prev, isActive: event.target.checked ? 1 : 0 }))}
+          />
+          <span className="label-text">Active</span>
+        </label>
+      </DaisyModal>
     </div>
   );
 }

@@ -1,286 +1,175 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { QueryProvider } from './providers/QueryProvider';
-import { Modal } from './ui/Modal';
-import { FormField, Input } from './ui/Form';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Toggle } from './ui/Toggle';
+import { useCreateExtension, useExtensions, useUpdateExtension } from '../api';
+import { AppProviders } from './providers/AppProviders';
+import { ErrorAlert, SpinnerBlock } from './ui/AsyncState';
+import { DaisyModal } from './ui/DaisyModal';
+import { useToast } from './ui/Toast';
 
 type Extension = {
   id: number;
-  extension: string;
-  name: string;
+  extensionId: string;
   accountId: number;
-  voicemailEnabled: boolean;
-  status: 'Online' | 'Offline';
+  domain: string;
+  voicemailEnabled: number;
+  isActive: number;
 };
-
-const extensionSchema = z.object({
-  extension: z.string().min(1, "Extension number is required"),
-  name: z.string().min(2, "Display name is required"),
-  accountId: z.coerce.number().min(1, "Account ID is required"),
-  voicemailEnabled: z.boolean(),
-});
-type ExtensionFormData = z.infer<typeof extensionSchema>;
-
-const MOCK_EXTENSIONS: Extension[] = [
-  { id: 1, extension: '1001', name: 'Alice Smith', accountId: 101, voicemailEnabled: true, status: 'Online' },
-  { id: 2, extension: '1002', name: 'Bob Jones', accountId: 101, voicemailEnabled: false, status: 'Offline' },
-  { id: 3, extension: '1003', name: 'Charlie Davis', accountId: 101, voicemailEnabled: true, status: 'Online' },
-  { id: 4, extension: '2001', name: 'Front Desk', accountId: 102, voicemailEnabled: true, status: 'Online' },
-  { id: 5, extension: '2005', name: 'Conference Room B', accountId: 102, voicemailEnabled: false, status: 'Online' },
-  { id: 6, extension: '3010', name: 'Support Queue 1', accountId: 103, voicemailEnabled: true, status: 'Online' },
-  { id: 7, extension: '4001', name: 'Executive Suite', accountId: 104, voicemailEnabled: true, status: 'Offline' },
-  { id: 8, extension: '5001', name: 'Warehouse Main', accountId: 105, voicemailEnabled: false, status: 'Online' },
-  { id: 9, extension: '5002', name: 'Shipping Desk', accountId: 105, voicemailEnabled: false, status: 'Online' },
-  { id: 10, extension: '6001', name: 'Paris Branch Main', accountId: 106, voicemailEnabled: true, status: 'Online' },
-  { id: 11, extension: '7001', name: 'Vancouver IT Desk', accountId: 107, voicemailEnabled: true, status: 'Online' },
-  { id: 12, extension: '8001', name: 'Austin Sales', accountId: 108, voicemailEnabled: false, status: 'Offline' },
-  { id: 13, extension: '1004', name: 'David Wilson', accountId: 101, voicemailEnabled: true, status: 'Online' },
-  { id: 14, extension: '2002', name: 'Support Lead', accountId: 102, voicemailEnabled: true, status: 'Online' },
-  { id: 15, extension: '3011', name: 'HR Dept', accountId: 103, voicemailEnabled: true, status: 'Online' },
-];
-
 export function ExtensionsManager() {
   return (
-    <QueryProvider>
+    <AppProviders>
       <ExtensionsManagerInner />
-    </QueryProvider>
+    </AppProviders>
   );
 }
 
 function ExtensionsManagerInner() {
-  const queryClient = useQueryClient();
+  const { data, isLoading, isError, error, refetch } = useExtensions();
+  const createMutation = useCreateExtension<{
+    extensionId: string;
+    accountId: number;
+    domain: string;
+    voicemailEnabled: number;
+    isActive: number;
+  }>();
+  const updateMutation = useUpdateExtension<{
+    id: number;
+    extensionId: string;
+    accountId: number;
+    domain: string;
+    voicemailEnabled: number;
+    isActive: number;
+  }>();
+  const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ExtensionFormData>({
-    resolver: zodResolver(extensionSchema),
-    defaultValues: { extension: '', name: '', accountId: undefined, voicemailEnabled: true }
+  const [form, setForm] = useState({
+    extensionId: '',
+    accountId: 1,
+    domain: '',
+    voicemailEnabled: 1,
+    isActive: 1,
   });
-
-  const isVoicemailEnabled = watch('voicemailEnabled');
-
-  const { data, isLoading } = useQuery<{ extensions: Extension[] }>({
-    queryKey: ['extensions'],
-    queryFn: async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:8787/extensions');
-        if (!res.ok) throw new Error('API Unavailable');
-        return res.json();
-      } catch (e) {
-        return { extensions: MOCK_EXTENSIONS };
-      }
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (newExt: ExtensionFormData) => {
-      const res = await fetch('http://127.0.0.1:8787/extensions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newExt),
-      });
-      if (!res.ok) throw new Error('Failed to create extension');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['extensions'] });
-      setIsModalOpen(false);
-      reset();
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async (ext: ExtensionFormData & { id: number }) => {
-      const res = await fetch(`http://127.0.0.1:8787/extensions/${ext.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ext),
-      });
-      if (!res.ok) throw new Error('Failed to update extension');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['extensions'] });
-      setIsModalOpen(false);
-      setEditingId(null);
-      reset();
-    },
-  });
-
-  const onSubmit = (formData: ExtensionFormData) => {
-    if (editingId) {
-      updateMutation.mutate({ ...formData, id: editingId });
-    } else {
-      createMutation.mutate(formData);
-    }
-  };
-
-  const openEdit = (ext: Extension) => {
-    reset({
-      extension: ext.extension,
-      name: ext.name,
-      accountId: ext.accountId,
-      voicemailEnabled: ext.voicemailEnabled
-    });
-    setEditingId(ext.id);
-    setIsModalOpen(true);
-  };
-
-  const openCreate = () => {
-    reset({ extension: '', name: '', accountId: undefined, voicemailEnabled: true });
-    setEditingId(null);
-    setIsModalOpen(true);
-  };
+  const extensions = data?.extensions ?? [];
+  const pending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-700">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Extensions</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Configure internal SIP endpoints, routing, and voicemail preferences.</p>
-        </div>
-        <button 
-          className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 group"
-          onClick={openCreate}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:rotate-90 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
-          Create Extension
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Extensions</h2>
+        <button type="button" className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+          Add Extension
         </button>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-50 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50">
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Extension</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Assignee</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Account ID</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Voicemail</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Activity</th>
-                <th className="px-8 py-5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-8 py-20 text-center">
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                      <span className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Loading Extensions...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : data?.extensions.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-8 py-20 text-center text-slate-300">
-                    <span className="text-sm font-bold uppercase tracking-widest">No Active Extensions Found</span>
-                  </td>
-                </tr>
-              ) : (
-                data?.extensions.map((ext) => (
-                  <tr key={ext.id} className="group hover:bg-slate-50 dark:hover:bg-slate-700/50 dark:bg-transparent transition-colors">
-                    <td className="px-8 py-6">
-                      <div className="w-12 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-mono font-bold border border-indigo-100/50">
-                        {ext.extension}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-400 dark:text-slate-500 overflow-hidden">
-                          <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(ext.name)}&background=f1f5f9&color=64748b&bold=true`} alt="" />
-                        </div>
-                        <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">{ext.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-xs font-bold text-slate-400 dark:text-slate-500 font-mono">
-                      #{ext.accountId}
-                    </td>
-                    <td className="px-8 py-6">
-                      {ext.voicemailEnabled ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-50 text-sky-600 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-sky-100">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
-                          Active
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Disabled</span>
-                      )}
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${ext.status === 'Online' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-100 dark:border-slate-700'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${ext.status === 'Online' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                        {ext.status}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-right">
-                      <button 
-                        className="px-4 py-2 text-indigo-600 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-50 rounded-xl transition-all"
-                        onClick={() => openEdit(ext)}
-                      >
-                        Configure
-                      </button>
-                    </td>
+      {isError ? <ErrorAlert message={(error as Error).message} onRetry={refetch} /> : null}
+
+      <div className="card bg-base-100 shadow">
+        <div className="card-body p-0">
+          {isLoading ? (
+            <SpinnerBlock label="Loading extensions..." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="table table-zebra">
+                <thead>
+                  <tr>
+                    <th>Extension</th>
+                    <th>Account</th>
+                    <th>Domain</th>
+                    <th>Voicemail</th>
+                    <th>Status</th>
+                    <th />
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {extensions.map((ext: Extension) => (
+                    <tr key={ext.id}>
+                      <td>{ext.extensionId}</td>
+                      <td>{ext.accountId}</td>
+                      <td>{ext.domain}</td>
+                      <td>{ext.voicemailEnabled ? 'Enabled' : 'Disabled'}</td>
+                      <td>{ext.isActive ? 'Active' : 'Inactive'}</td>
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => {
+                            setEditingId(ext.id);
+                            setForm({
+                              extensionId: ext.extensionId,
+                              accountId: ext.accountId,
+                              domain: ext.domain,
+                              voicemailEnabled: ext.voicemailEnabled,
+                              isActive: ext.isActive,
+                            });
+                            setIsModalOpen(true);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
-      <Modal 
-        isOpen={isModalOpen} 
+      <DaisyModal
+        open={isModalOpen}
+        title={editingId ? 'Edit Extension' : 'Create Extension'}
         onClose={() => setIsModalOpen(false)}
-        title={editingId ? 'Edit Extension' : 'New Extension'}
         footer={
-          <div className="flex gap-4 w-full">
-            <button 
-              type="button" 
-              className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
-              onClick={() => setIsModalOpen(false)}
-            >
+          <>
+            <button type="button" className="btn" onClick={() => setIsModalOpen(false)}>
               Cancel
             </button>
-            <button 
-              onClick={handleSubmit(onSubmit)}
-              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
-              disabled={createMutation.isPending || updateMutation.isPending}
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={pending}
+              onClick={async () => {
+                try {
+                  if (editingId) {
+                    await updateMutation.mutateAsync({ id: editingId, ...form });
+                    showToast('Extension updated', 'success');
+                  } else {
+                    await createMutation.mutateAsync(form);
+                    showToast('Extension created', 'success');
+                  }
+                  setIsModalOpen(false);
+                } catch (err) {
+                  showToast(err instanceof Error ? err.message : 'Failed to save extension', 'error');
+                }
+              }}
             >
-              {createMutation.isPending || updateMutation.isPending ? 'Processing...' : (editingId ? 'Save Changes' : 'Initialize Extension')}
+              {pending ? 'Saving...' : 'Save'}
             </button>
-          </div>
+          </>
         }
       >
-        <form id="extension-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
-          <div className="grid grid-cols-2 gap-6">
-            <FormField label="Extension Number" error={errors.extension} required>
-              <Input {...register('extension')} placeholder="e.g. 1001" className="font-mono" error={!!errors.extension} />
-            </FormField>
-            <FormField label="Linked Account ID" error={errors.accountId} required>
-              <Input type="number" {...register('accountId')} placeholder="System ID" className="font-mono" error={!!errors.accountId} />
-            </FormField>
-          </div>
-
-          <FormField label="Display Name / Assignee" error={errors.name} required>
-            <Input {...register('name')} placeholder="e.g. Alice Smith" error={!!errors.name} />
-          </FormField>
-
-          <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-            <div>
-              <span className="block text-[10px] font-bold text-slate-900 dark:text-white uppercase tracking-widest">Voicemail Module</span>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Enable mailbox for this extension</span>
-            </div>
-            <Toggle 
-              checked={isVoicemailEnabled}
-              onChange={(v) => setValue('voicemailEnabled', v)}
-            />
-          </div>
-        </form>
-      </Modal>
+        <input
+          className="input input-bordered w-full"
+          value={form.extensionId}
+          placeholder="Extension ID"
+          onChange={(event) => setForm((prev) => ({ ...prev, extensionId: event.target.value }))}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <input
+            className="input input-bordered"
+            type="number"
+            value={form.accountId}
+            onChange={(event) => setForm((prev) => ({ ...prev, accountId: Number(event.target.value) }))}
+            placeholder="Account ID"
+          />
+          <input
+            className="input input-bordered"
+            value={form.domain}
+            onChange={(event) => setForm((prev) => ({ ...prev, domain: event.target.value }))}
+            placeholder="Domain"
+          />
+        </div>
+      </DaisyModal>
     </div>
   );
 }

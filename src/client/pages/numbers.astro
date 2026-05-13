@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { NumbersManager } from '../components/NumbersManager';
 ---
 <AdminLayout title="Numbers">
-  <NumbersManager client:load />
+  <AppProviders client:only="react">
+    <NumbersManager />
+  </AppProviders>
 </AdminLayout>

@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { VoicemailManager } from '../components/VoicemailManager';
 ---
 <AdminLayout title="Voicemail">
-  <VoicemailManager client:load />
+  <AppProviders client:only="react">
+    <VoicemailManager />
+  </AppProviders>
 </AdminLayout>

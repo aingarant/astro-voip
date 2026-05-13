@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { DestinationsManager } from '../components/DestinationsManager';
 ---
 <AdminLayout title="Destinations">
-  <DestinationsManager client:load />
+  <AppProviders client:only="react">
+    <DestinationsManager />
+  </AppProviders>
 </AdminLayout>

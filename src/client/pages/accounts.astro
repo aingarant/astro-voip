@@ -1,10 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
-import { QueryProvider } from '../components/providers/QueryProvider';
+import { AppProviders } from '../components/providers/AppProviders';
 import { AccountsManager } from '../components/AccountsManager';
 ---
 <AdminLayout title="Accounts">
-  <QueryProvider client:load>
-    <AccountsManager client:load />
-  </QueryProvider>
+  <AppProviders client:only="react">
+    <AccountsManager />
+  </AppProviders>
 </AdminLayout>

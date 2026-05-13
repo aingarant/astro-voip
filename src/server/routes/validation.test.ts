@@ -55,6 +55,56 @@ describe('route validation checks', () => {
     expect(body.error).toBe('isNew must be 0 or 1')
   })
 
+  it('keeps voicemail route reachable despite top-level root handler', async () => {
+    const response = await app.request('/voicemail-messages/abc')
+    const body = await json(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('ID must be a positive number')
+  })
+
+  it('rejects voicemail messages query with non-numeric voicemailBoxId', async () => {
+    const response = await app.request('/voicemail-messages?voicemailBoxId=not-a-number')
+    const body = await json(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('voicemailBoxId must be a number')
+  })
+
+  it('rejects extension create payload with voicemailId when voicemail is disabled', async () => {
+    const response = await app.request('/extensions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: 1,
+        extensionId: '1001',
+        domain: 'example.com',
+        isActive: 1,
+        voicemailEnabled: 0,
+        voicemailId: 10,
+      }),
+    })
+    const body = await json(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Voicemail ID must be omitted when voicemail is disabled')
+  })
+
+  it('rejects extension update payload with voicemailId when voicemail is disabled', async () => {
+    const response = await app.request('/extensions/1', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: 1,
+        extensionId: '1001',
+        domain: 'example.com',
+        isActive: 1,
+        voicemailEnabled: 0,
+        voicemailId: 10,
+      }),
+    })
+    const body = await json(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Voicemail ID must be omitted when voicemail is disabled')
+  })
+
   it('rejects dispatcher create payload with missing destination', async () => {
     const response = await app.request('/dispatcher', {
       method: 'POST',

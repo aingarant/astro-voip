@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { IVRManager } from '../components/IVRManager';
 ---
 <AdminLayout title="IVR & Auto Attendant">
-  <IVRManager client:load />
+  <AppProviders client:only="react">
+    <IVRManager />
+  </AppProviders>
 </AdminLayout>

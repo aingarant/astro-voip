@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { ExtensionsManager } from '../components/ExtensionsManager';
 ---
 <AdminLayout title="Extensions">
-  <ExtensionsManager client:load />
+  <AppProviders client:only="react">
+    <ExtensionsManager />
+  </AppProviders>
 </AdminLayout>

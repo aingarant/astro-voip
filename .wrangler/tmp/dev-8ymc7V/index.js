@@ -34721,6 +34721,21 @@ var dids_default = didsRoute;
 // src/server/routes/extensions.ts
 init_modules_watch_stub();
 var extensionsRoute = new Hono2();
+var normalizeVoicemailId = /* @__PURE__ */ __name((voicemailEnabled, voicemailId) => {
+  if (voicemailEnabled === 0) {
+    if (voicemailId !== void 0 && voicemailId !== null) {
+      return { error: "Voicemail ID must be omitted when voicemail is disabled" };
+    }
+    return { value: null };
+  }
+  if (voicemailId === void 0 || voicemailId === null) {
+    return { value: null };
+  }
+  if (typeof voicemailId !== "number" || Number.isNaN(voicemailId)) {
+    return { error: "Voicemail ID must be a number" };
+  }
+  return { value: voicemailId };
+}, "normalizeVoicemailId");
 extensionsRoute.get("/", async (c) => {
   try {
     const { limit, offset } = normalizePagination(c.req.query("limit"), c.req.query("offset"));
@@ -34755,12 +34770,11 @@ extensionsRoute.post("/", async (c) => {
   if (!activeValidation.success) return badRequest(c, activeValidation.error);
   const voicemailEnabledValidation = validateFlag01(voicemailEnabled, "Voicemail Enabled");
   if (!voicemailEnabledValidation.success) return badRequest(c, voicemailEnabledValidation.error);
-  if (voicemailId !== void 0 && voicemailId !== null && (typeof voicemailId !== "number" || Number.isNaN(voicemailId))) {
-    return badRequest(c, "Voicemail ID must be a number");
-  }
+  const normalizedVoicemail = normalizeVoicemailId(voicemailEnabled, voicemailId);
+  if (normalizedVoicemail.error) return badRequest(c, normalizedVoicemail.error);
   try {
-    if (voicemailId) {
-      const box = await db.select().from(voicemailBoxes).where(eq(voicemailBoxes.id, voicemailId)).limit(1);
+    if (normalizedVoicemail.value !== null && normalizedVoicemail.value !== void 0) {
+      const box = await db.select().from(voicemailBoxes).where(eq(voicemailBoxes.id, normalizedVoicemail.value)).limit(1);
       if (!box[0]) return badRequest(c, "Voicemail box does not exist");
     }
     const created = await db.insert(extensions).values({
@@ -34769,7 +34783,7 @@ extensionsRoute.post("/", async (c) => {
       domain: domain3,
       isActive,
       voicemailEnabled,
-      voicemailId: voicemailId ?? null
+      voicemailId: normalizedVoicemail.value ?? null
     }).returning();
     return c.json({ extension: created[0] }, 201);
   } catch (error51) {
@@ -34791,12 +34805,11 @@ extensionsRoute.put("/:id", async (c) => {
   if (!activeValidation.success) return badRequest(c, activeValidation.error);
   const voicemailEnabledValidation = validateFlag01(voicemailEnabled, "Voicemail Enabled");
   if (!voicemailEnabledValidation.success) return badRequest(c, voicemailEnabledValidation.error);
-  if (voicemailId !== void 0 && voicemailId !== null && (typeof voicemailId !== "number" || Number.isNaN(voicemailId))) {
-    return badRequest(c, "Voicemail ID must be a number");
-  }
+  const normalizedVoicemail = normalizeVoicemailId(voicemailEnabled, voicemailId);
+  if (normalizedVoicemail.error) return badRequest(c, normalizedVoicemail.error);
   try {
-    if (voicemailId) {
-      const box = await db.select().from(voicemailBoxes).where(eq(voicemailBoxes.id, voicemailId)).limit(1);
+    if (normalizedVoicemail.value !== null && normalizedVoicemail.value !== void 0) {
+      const box = await db.select().from(voicemailBoxes).where(eq(voicemailBoxes.id, normalizedVoicemail.value)).limit(1);
       if (!box[0]) return badRequest(c, "Voicemail box does not exist");
     }
     const updated = await db.update(extensions).set({
@@ -34805,7 +34818,7 @@ extensionsRoute.put("/:id", async (c) => {
       domain: domain3,
       isActive,
       voicemailEnabled,
-      voicemailId: voicemailId ?? null
+      voicemailId: normalizedVoicemail.value ?? null
     }).where(eq(extensions.id, parsed.id)).returning();
     if (!updated[0]) return notFound(c, "Extension not found");
     return c.json({ extension: updated[0] });
@@ -34967,7 +34980,13 @@ voicemailRoute.get("/voicemail-messages", async (c) => {
   try {
     const { limit, offset } = normalizePagination(c.req.query("limit"), c.req.query("offset"));
     const boxIdParam = c.req.query("voicemailBoxId");
-    const rows = boxIdParam ? await db.select().from(voicemailMessages).where(eq(voicemailMessages.voicemailBoxId, Number.parseInt(boxIdParam, 10))).limit(limit).offset(offset) : await db.select().from(voicemailMessages).limit(limit).offset(offset);
+    if (boxIdParam !== void 0) {
+      const parsedBoxId = Number.parseInt(boxIdParam, 10);
+      if (Number.isNaN(parsedBoxId)) return badRequest(c, "voicemailBoxId must be a number");
+      const rows2 = await db.select().from(voicemailMessages).where(eq(voicemailMessages.voicemailBoxId, parsedBoxId)).limit(limit).offset(offset);
+      return c.json({ voicemailMessages: rows2, page: { limit, offset } });
+    }
+    const rows = await db.select().from(voicemailMessages).limit(limit).offset(offset);
     return c.json({ voicemailMessages: rows, page: { limit, offset } });
   } catch (error51) {
     console.error(error51);

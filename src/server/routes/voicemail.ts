@@ -129,9 +129,18 @@ voicemailRoute.get('/voicemail-messages', async (c) => {
   try {
     const { limit, offset } = normalizePagination(c.req.query('limit'), c.req.query('offset'))
     const boxIdParam = c.req.query('voicemailBoxId')
-    const rows = boxIdParam
-      ? await db.select().from(voicemailMessages).where(eq(voicemailMessages.voicemailBoxId, Number.parseInt(boxIdParam, 10))).limit(limit).offset(offset)
-      : await db.select().from(voicemailMessages).limit(limit).offset(offset)
+    if (boxIdParam !== undefined) {
+      const parsedBoxId = Number.parseInt(boxIdParam, 10)
+      if (Number.isNaN(parsedBoxId)) return badRequest(c, 'voicemailBoxId must be a number')
+      const rows = await db
+        .select()
+        .from(voicemailMessages)
+        .where(eq(voicemailMessages.voicemailBoxId, parsedBoxId))
+        .limit(limit)
+        .offset(offset)
+      return c.json({ voicemailMessages: rows, page: { limit, offset } })
+    }
+    const rows = await db.select().from(voicemailMessages).limit(limit).offset(offset)
     return c.json({ voicemailMessages: rows, page: { limit, offset } })
   } catch (error: unknown) {
     console.error(error)

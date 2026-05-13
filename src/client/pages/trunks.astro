@@ -1,7 +1,10 @@
 ---
 import AdminLayout from '../layouts/AdminLayout.astro';
+import { AppProviders } from '../components/providers/AppProviders';
 import { TrunksManager } from '../components/TrunksManager';
 ---
 <AdminLayout title="Trunks">
-  <TrunksManager client:load />
+  <AppProviders client:only="react">
+    <TrunksManager />
+  </AppProviders>
 </AdminLayout>
